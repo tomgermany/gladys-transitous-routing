@@ -1,34 +1,19 @@
 
-/**
- * Minimaler Funktionstest für Widget-Formulare im Gladys SDK 0.15.x.
- *
- * Testablauf:
- * 1. Der Widget-Button öffnet ein Mini-Formular.
- * 2. Gladys übergibt die Formularwerte an die Aktion get_route.
- * 3. Die Aktion erzeugt drei simulierte Verbindungen.
- * 4. Die Ergebnisse werden gespeichert und das Widget wird aktualisiert.
- * 5. Der erneute Widget-Abruf zeigt die drei Verbindungen als Cardlist.
- */
+import { logger } from '@gladysassistant/integration-sdk';
 
 export const TRANSITOUS_DEPARTURES_WIDGET = 'transitous_departures';
 
-// Zwischenspeicher für die Ergebnisse.
-// Der Schlüssel berücksichtigt die Einstellungen der jeweiligen Widget-Instanz.
+// Zwischenspeicher für Ergebnisse je Widget-Konfiguration.
 const routeResults = new Map();
 
-/**
- * Erzeugt einen stabilen Schlüssel für eine Widget-Konfiguration.
- * So können unterschiedliche Widget-Instanzen getrennte Ergebnisse anzeigen.
- */
 function getWidgetKey(settings = {}) {
   return JSON.stringify(settings);
 }
 
 /**
- * Erzeugt drei Testverbindungen anhand der übermittelten Formulardaten.
- *
- * Es werden noch keine echten Fahrplandaten abgefragt.
- * Die Eingaben dienen ausschließlich dazu, die Datenübergabe zu prüfen.
+ * Erzeugt drei simulierte Verbindungen.
+ * Die Formulardaten werden in den Beschreibungen wiedergegeben,
+ * damit die Datenübergabe im Widget überprüft werden kann.
  */
 function getRoute({ start, destination, date, time }) {
   return [
@@ -37,7 +22,7 @@ function getRoute({ start, destination, date, time }) {
       subtitle: 'Abfahrt 08:15 · Ankunft 08:42',
       description:
         `Start: ${start}\nZiel: ${destination}\n` +
-        `Datum: ${date}\nGewünschte Uhrzeit: ${time}\n` +
+        `Datum: ${date}\nUhrzeit: ${time}\n` +
         'Simulierte Verbindung ohne Umstieg.',
     },
     {
@@ -45,7 +30,7 @@ function getRoute({ start, destination, date, time }) {
       subtitle: 'Abfahrt 08:20 · Ankunft 08:55',
       description:
         `Start: ${start}\nZiel: ${destination}\n` +
-        `Datum: ${date}\nGewünschte Uhrzeit: ${time}\n` +
+        `Datum: ${date}\nUhrzeit: ${time}\n` +
         'Simulierte Verbindung mit einem Umstieg.',
     },
     {
@@ -53,19 +38,13 @@ function getRoute({ start, destination, date, time }) {
       subtitle: 'Abfahrt 08:30 · Ankunft 09:05',
       description:
         `Start: ${start}\nZiel: ${destination}\n` +
-        `Datum: ${date}\nGewünschte Uhrzeit: ${time}\n` +
-        'Dritte simulierte Verbindung für den Funktionstest.',
+        `Datum: ${date}\nUhrzeit: ${time}\n` +
+        'Dritte simulierte Verbindung.',
     },
   ];
 }
 
-/**
- * Definition der Widget-Felder.
- *
- * Die Werte werden beim Antippen des Buttons in einem Formular abgefragt.
- * Das SDK unterstützt hier unter anderem den Feldtyp string.
- * Deshalb sind Datum und Uhrzeit zunächst normale Texteingaben.
- */
+// Felder für das Mini-Formular des Route-Buttons.
 const routeFormFields = [
   {
     key: 'start',
@@ -109,12 +88,7 @@ const routeFormFields = [
   },
 ];
 
-/**
- * Gemeinsamer Button zum Öffnen des Mini-Formulars.
- *
- * Die fields gehören zur action. Gladys öffnet das Formular beim Antippen
- * und übergibt die ausgefüllten Felder anschließend separat als values.
- */
+// Der Button öffnet das Formular und startet danach get_route.
 function createRouteButton() {
   return {
     type: 'button',
@@ -135,75 +109,86 @@ function createRouteButton() {
 export const WIDGETS = {
   [TRANSITOUS_DEPARTURES_WIDGET]: {
     /**
-     * Wird von Gladys beim Laden oder Aktualisieren des Widgets aufgerufen.
+     * Gladys ruft get() beim Laden und Aktualisieren des Widgets auf.
      */
-    async get(gladys, { settings = {}, language = 'de' } = {}) {
-      const savedRoutes = routeResults.get(getWidgetKey(settings));
+    async get(gladys, { settings = {} } = {}) {
+      const widgetKey = getWidgetKey(settings);
+      const savedRoutes = routeResults.get(widgetKey);
 
-      const heading = {
-        type: 'text',
-        variant: 'heading',
-        text: {
-          de: 'Routen-Funktionstest',
-          en: 'Route function test',
-          fr: 'Test de recherche d’itinéraire',
+      logger.info(
+        `[Route-Test] Widget abgerufen. Ergebnisse vorhanden: ${Boolean(savedRoutes)}.`,
+      );
+
+      const components = [
+        {
+          type: 'text',
+          variant: 'heading',
+          text: 'Routen-Funktionstest',
         },
-      };
+      ];
 
-      // Vor dem ersten Formularversand gibt es noch keine Ergebnisse.
       if (!savedRoutes) {
-        return {
-          ttl_seconds: 3600,
-          components: [
-            heading,
-            {
-              type: 'text',
-              variant: 'body',
-              text: {
-                de: 'Öffne das Mini-Formular und übermittle die vier Testwerte.',
-                en: 'Open the mini form and submit the four test values.',
-                fr: 'Ouvre le mini-formulaire et envoie les quatre valeurs de test.',
-              },
-            },
-            createRouteButton(),
-          ],
-        };
-      }
+        components.push(
+          {
+            type: 'text',
+            variant: 'body',
+            text: 'Öffne das Mini-Formular und übermittle die vier Testwerte.',
+          },
+          createRouteButton(),
+        );
+      } else {
+        logger.info(
+          `[Route-Test] ${savedRoutes.length} gespeicherte Testverbindungen werden angezeigt.`,
+        );
 
-      // Nach dem Absenden werden die gespeicherten Testverbindungen angezeigt.
-      return {
-        ttl_seconds: 3600,
-        components: [
-          heading,
+        components.push(
           {
             type: 'card-list',
             display: 'list',
             items: savedRoutes,
           },
           createRouteButton(),
-        ],
+        );
+      }
+
+      return {
+        ttl_seconds: 3600,
+        components,
       };
     },
 
     /**
      * Verarbeitet den Formularversand.
-     *
-     * values enthält die vom Benutzer eingegebenen und von Gladys
-     * validierten Formularwerte. params ist davon getrennt.
+     * values enthält die Formularwerte, params ist ein separates Argument.
      */
     async action(gladys, { actionKey, settings = {}, values } = {}) {
+      logger.info(`[Route-Test] Widget-Aktion empfangen: ${actionKey}.`);
+
       if (actionKey !== 'get_route') {
+        logger.info('[Route-Test] Unbekannte Aktion – keine Verarbeitung.');
         return;
       }
 
-      // Ohne Formularwerte kann der Test nicht ausgeführt werden.
-      if (
-        !values
-        || !values.start
-        || !values.destination
-        || !values.date
-        || !values.time
-      ) {
+      // Nur prüfen, ob die Pflichtfelder vorhanden sind.
+      // Die eingegebenen Werte selbst werden nicht protokolliert.
+      const requiredFields = [
+        'start',
+        'destination',
+        'date',
+        'time',
+      ];
+
+      const missingFields = requiredFields.filter(
+        (key) =>
+          typeof values?.[key] !== 'string'
+          || !values[key].trim(),
+      );
+
+      if (missingFields.length > 0) {
+        logger.warn(
+          `[Route-Test] Formular unvollständig. Fehlende Felder: ${missingFields.join(', ')}.`,
+        );
+
         return {
           de: 'Formulardaten fehlen.',
           en: 'Form values are missing.',
@@ -211,21 +196,32 @@ export const WIDGETS = {
         };
       }
 
-      // Die drei simulierten Verbindungen anhand der Formulardaten erzeugen.
+      logger.info(
+        '[Route-Test] Alle vier Formularfelder wurden empfangen.',
+      );
+
+      // Drei feste Testverbindungen anhand der Formulardaten erzeugen.
       const routes = getRoute({
-        start: String(values.start).trim(),
-        destination: String(values.destination).trim(),
-        date: String(values.date).trim(),
-        time: String(values.time).trim(),
+        start: values.start.trim(),
+        destination: values.destination.trim(),
+        date: values.date.trim(),
+        time: values.time.trim(),
       });
 
-      // Die Ergebnisse müssen bis zum nächsten Widget-Abruf erhalten bleiben.
+      logger.info(
+        `[Route-Test] ${routes.length} simulierte Verbindungen erzeugt.`,
+      );
+
+      // Ergebnisse für den nächsten Widget-Abruf zwischenspeichern.
       routeResults.set(getWidgetKey(settings), routes);
 
-      // Die Aktualisierung ausdrücklich über den SDK-Mechanismus anfordern.
+      logger.info('[Route-Test] Testergebnisse im Zwischenspeicher abgelegt.');
+
+      // Gladys auffordern, das Widget erneut abzurufen.
       gladys.requestWidgetRefresh(TRANSITOUS_DEPARTURES_WIDGET);
 
-      // Gladys zeigt diese Rückmeldung nach erfolgreicher Aktion als Toast an.
+      logger.info('[Route-Test] Widget-Aktualisierung angefordert.');
+
       return {
         de: 'Formulardaten empfangen. Drei Testverbindungen wurden erzeugt.',
         en: 'Form values received. Three test connections were generated.',
@@ -236,11 +232,11 @@ export const WIDGETS = {
 };
 
 /**
- * Fordert nach Verbindungsaufbau oder Konfigurationsänderungen
- * die Aktualisierung aller registrierten Widgets an.
+ * Aktualisiert alle registrierten Widgets, etwa nach dem Verbindungsaufbau.
  */
 export function refreshWidgets(gladys) {
   for (const key of Object.keys(WIDGETS)) {
+    logger.info(`[Route-Test] Aktualisierung angefordert: ${key}.`);
     gladys.requestWidgetRefresh(key);
   }
 }
