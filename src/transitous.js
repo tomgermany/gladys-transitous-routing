@@ -2,7 +2,7 @@
 const API_URL = 'https://api.transitous.org/api/v6/stoptimes';
 const APP_NAME = 'Gladys Transitous Departures';
 const APP_VERSION = '1.0.0';
-const DEFAULT_CONTACT = 'https://github.com/tomgermany/gladys-transitous-departures';
+const DEFAULT_CONTACT = 'https://github.com/tomgermany/gladys-transitous-routing';
 
 // Erlaubter Vorausblick: heute bis einschließlich sieben Tage voraus.
 const MAX_DAYS_AHEAD = 7;
