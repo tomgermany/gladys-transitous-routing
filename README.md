@@ -5,7 +5,7 @@ Sie ist aktuell noch im Entwicklungsstand und nicht zur Installation geeignet.
 
 Diese Entwicklung benötigt eine Installation von Gladys Assistant als Grundlage.
 
-![Ergebnis der Integration](test/cover.png)
+![Ergebnis der Integration](cover.png)
 
 
 Hinweis:
