@@ -1,32 +1,42 @@
+
 import { GladysIntegration, logger } from '@gladysassistant/integration-sdk';
 import { WIDGETS, refreshWidgets } from './src/widgets.js';
 
 const gladys = new GladysIntegration();
 
-// Dashboard-Widgets registrieren.
+// Alle im Projekt definierten Dashboard-Widgets registrieren.
 for (const [widgetKey, widget] of Object.entries(WIDGETS)) {
-  gladys.onWidgetGet(widgetKey, (request) => widget.get(gladys, request ?? {}));
+  gladys.onWidgetGet(widgetKey, (request) =>
+    widget.get(gladys, request ?? {}),
+  );
 
+  // Widget-Aktionen einschließlich der ausgefüllten Formularwerte registrieren.
   if (typeof widget.action === 'function') {
-    gladys.onWidgetAction(widgetKey, (actionKey, params, { settings }) =>
-      widget.action(gladys, { actionKey, params, settings }),
+    gladys.onWidgetAction(
+      widgetKey,
+      (actionKey, params, { settings, values } = {}) =>
+        widget.action(gladys, {
+          actionKey,
+          params,
+          settings,
+          values,
+        }),
     );
   }
 }
 
-// Einstellungen wurden in Gladys geändert: Widget aktualisieren.
+// Bei geänderten Integrationseinstellungen die Widgets aktualisieren.
 gladys.onConfigUpdated(async () => {
   logger.info('Konfiguration aktualisiert');
   refreshWidgets(gladys);
 });
 
-// Nach erfolgreicher Verbindung den Status melden und
-// offene Dashboard-Widgets zur Aktualisierung auffordern.
+// Nach erfolgreicher Verbindung den Status melden und die Widgets aktualisieren.
 gladys.on('connected', async () => {
   try {
     await gladys.setConnectionStatus(true);
     refreshWidgets(gladys);
-    logger.info('Transitous-Integration verbunden');
+    logger.info('Integration verbunden');
   } catch (err) {
     logger.error('Initialisierung fehlgeschlagen', err);
 
@@ -40,13 +50,13 @@ gladys.on('connected', async () => {
   }
 });
 
-// Sauberes Beenden.
+// Die Integration bei einem Beendigungssignal sauber herunterfahren.
 gladys.handleShutdown((signal) => {
-  logger.info(`Beende Integration: ${signal}`);
+  logger.info(`Integration wird beendet: ${signal}`);
 });
 
 // Verbindung zu Gladys starten.
-logger.info('Starte Transitous-Integration...');
+logger.info('Starte Integration für den Routen-Funktionstest...');
 
 gladys.connect().catch((err) => {
   logger.error('Verbindung zu Gladys fehlgeschlagen', err);
