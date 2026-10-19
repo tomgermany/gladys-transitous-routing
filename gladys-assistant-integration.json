@@ -11,8 +11,8 @@
     "ko": "Transitous에서 제공하는 Gladys 대시보드의 주변 대중교통 출발 정보입니다.",
     "kl": "Transitous atorlugu Gladys dashboard-imi qanitsumi qatserisut/angallatit aallartarfii."
   },
-  "version": "3.2.0",
-  "docker_image": "ghcr.io/tomgermany/gladys-transitous-departures:3.2.0",
+  "version": "3.2.1",
+  "docker_image": "ghcr.io/tomgermany/gladys-transitous-routing:3.2.1",
   "gladys_version": ">=5.2.0",
   "cover_image": "https://raw.githubusercontent.com/tomgermany/gladys-transitous-departures/main/cover.png",
   "categories": [
