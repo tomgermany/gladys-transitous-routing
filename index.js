@@ -4,13 +4,14 @@ import { WIDGETS, refreshWidgets } from './src/widgets.js';
 
 const gladys = new GladysIntegration();
 
-// Alle im Projekt definierten Dashboard-Widgets registrieren.
+// Alle Widgets registrieren und ihre Abrufe an die jeweilige get()-Funktion leiten.
 for (const [widgetKey, widget] of Object.entries(WIDGETS)) {
   gladys.onWidgetGet(widgetKey, (request) =>
     widget.get(gladys, request ?? {}),
   );
 
-  // Widget-Aktionen einschließlich der ausgefüllten Formularwerte registrieren.
+  // Formularwerte müssen zusätzlich zu actionKey, params und settings
+  // an die Widget-Aktion weitergegeben werden.
   if (typeof widget.action === 'function') {
     gladys.onWidgetAction(
       widgetKey,
@@ -22,23 +23,27 @@ for (const [widgetKey, widget] of Object.entries(WIDGETS)) {
           values,
         }),
     );
+
+    logger.info(`[Route-Test] Widget-Aktionen registriert: ${widgetKey}.`);
   }
 }
 
-// Bei geänderten Integrationseinstellungen die Widgets aktualisieren.
+// Änderungen an der Konfiguration lösen eine Widget-Aktualisierung aus.
 gladys.onConfigUpdated(async () => {
-  logger.info('Konfiguration aktualisiert');
+  logger.info('[Route-Test] Konfiguration geändert.');
   refreshWidgets(gladys);
 });
 
-// Nach erfolgreicher Verbindung den Status melden und die Widgets aktualisieren.
+// Nach erfolgreicher Verbindung den Status setzen und das Widget aktualisieren.
 gladys.on('connected', async () => {
+  logger.info('[Route-Test] Verbindung zu Gladys hergestellt.');
+
   try {
     await gladys.setConnectionStatus(true);
     refreshWidgets(gladys);
-    logger.info('Integration verbunden');
+    logger.info('[Route-Test] Initialisierung abgeschlossen.');
   } catch (err) {
-    logger.error('Initialisierung fehlgeschlagen', err);
+    logger.error('[Route-Test] Initialisierung fehlgeschlagen.', err);
 
     await gladys
       .setConnectionStatus(false, {
@@ -50,15 +55,15 @@ gladys.on('connected', async () => {
   }
 });
 
-// Die Integration bei einem Beendigungssignal sauber herunterfahren.
+// Sauberes Beenden der Integration protokollieren.
 gladys.handleShutdown((signal) => {
-  logger.info(`Integration wird beendet: ${signal}`);
+  logger.info(`[Route-Test] Integration wird beendet: ${signal}.`);
 });
 
-// Verbindung zu Gladys starten.
-logger.info('Starte Integration für den Routen-Funktionstest...');
+// Integration starten.
+logger.info('[Route-Test] Starte Integration.');
 
 gladys.connect().catch((err) => {
-  logger.error('Verbindung zu Gladys fehlgeschlagen', err);
+  logger.error('[Route-Test] Verbindung zu Gladys fehlgeschlagen.', err);
   process.exit(1);
 });
