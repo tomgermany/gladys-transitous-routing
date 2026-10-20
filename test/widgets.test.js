@@ -4,12 +4,12 @@ import assert from 'node:assert/strict';
 import { validateWidgetContent } from '@gladysassistant/integration-sdk';
 import { createFakeGladys } from '@gladysassistant/integration-sdk/testing';
 import {
-  TRANSITOUS_DEPARTURES_WIDGET,
+  TRANSITOUS_ROUTING_WIDGET,
   WIDGETS,
   refreshWidgets,
 } from '../src/widgets.js';
 
-const widget = WIDGETS[TRANSITOUS_DEPARTURES_WIDGET];
+const widget = WIDGETS[];
 
 const getContent = (settings = {}) =>
   widget.get(createFakeGladys(), {
@@ -20,7 +20,7 @@ const getContent = (settings = {}) =>
   });
 
 test('the route widget is registered', () => {
-  assert.ok(widget, 'transitous_departures must be registered');
+  assert.ok(widget, 'transitous_routing must be registered');
   assert.equal(typeof widget.get, 'function');
   assert.equal(typeof widget.action, 'function');
 });
