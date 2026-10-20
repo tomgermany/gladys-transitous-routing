@@ -1,455 +1,367 @@
 
-const API_URL = 'https://api.transitous.org/api/v6/stoptimes';
+import { geocode, plan } from '@motis-project/motis-client';
+
+const TRANSITOUS_BASE_URL = 'https://api.transitous.org';
 const APP_NAME = 'Gladys Transitous Routing';
 const APP_VERSION = '0.0.1';
-const DEFAULT_CONTACT = 'https://github.com/tomgermany/gladys-transitous-routing';
-
-// Erlaubter Vorausblick: heute bis einschließlich sieben Tage voraus.
-const MAX_DAYS_AHEAD = 7;
-const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+const DEFAULT_CONTACT =
+  'https://github.com/tomgermany/gladys-transitous-routing';
+const REQUEST_TIMEOUT_MS = 15000;
 
 /**
- * Wandelt unterschiedliche Zeitangaben der API in Unix-Millisekunden um.
- * Sekundenwerte werden automatisch in Millisekunden umgerechnet.
- */
-function getEpoch(value) {
-  if (typeof value === 'number') {
-    return value > 1e12 ? value : value * 1000;
-  }
-
-  if (typeof value === 'string') {
-    const milliseconds = Date.parse(value);
-    return Number.isFinite(milliseconds) ? milliseconds : null;
-  }
-
-  return null;
-}
-
-function getRawTime(item) {
-  return item.departure ?? item.scheduled ?? item.place?.departure ?? null;
-}
-
-/**
- * Formatiert einen Zeitpunkt in der lokalen Zeitzone der Haltestelle.
- */
-function formatLocalTime(epochMs, timeZone) {
-  if (!timeZone) return null;
-
-  try {
-    return new Intl.DateTimeFormat('de-DE', {
-      timeZone,
-      hour: '2-digit',
-      minute: '2-digit',
-      hourCycle: 'h23',
-    }).format(new Date(epochMs));
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Berechnet die Luftlinienentfernung zwischen zwei Koordinaten in Metern.
- */
-function haversineMeters(lat1, lon1, lat2, lon2) {
-  const radians = (degrees) => (degrees * Math.PI) / 180;
-  const dLat = radians(lat2 - lat1);
-  const dLon = radians(lon2 - lon1);
-
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(radians(lat1)) *
-      Math.cos(radians(lat2)) *
-      Math.sin(dLon / 2) ** 2;
-
-  return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-/**
- * Ordnet Verkehrsmittel einer gemeinsamen Farbgruppe zu.
+ * Erzeugt die HTTP-Optionen für den offiziellen MOTIS-Client.
  *
- * Diese Kategorien werden in widgets.js für die Farben der
- * Haltestellen-Badges und der Abfahrtskacheln verwendet.
+ * Der Kontakt im User-Agent hilft Transitous dabei, die Anwendung
+ * zu identifizieren. Die API-Aufrufe selbst erfolgen über den Client.
  */
-function modeCategory(mode) {
-  if (mode === 'BUS') return 'BUS';
-
-  if ([
-    'RAIL',
-    'REGIONAL_RAIL',
-    'REGIONAL_FAST_RAIL',
-    'SUBURBAN',
-  ].includes(mode)) {
-    return 'REGIONAL';
-  }
-
-  if (['ODM', 'FERRY', 'AIRPLANE', 'FUNICULAR'].includes(mode)) {
-    return 'SPECIAL';
-  }
-
-  if (['TRAM', 'SUBWAY'].includes(mode)) {
-    return 'URBAN';
-  }
-
-  if ([
-    'HIGHSPEED_RAIL',
-    'HIGH_SPEED_RAIL',
-    'LONG_DISTANCE',
-    'NIGHT_RAIL',
-  ].includes(mode)) {
-    return 'RAIL';
-  }
-
-  return null;
-}
-
-/**
- * Liefert die für die Anzeige vorgesehenen deutschen Verkehrsmittel-Kürzel.
- */
-function displayedMode(mode) {
-  if (mode === 'FERRY') return 'FÄHRE';
-  if (mode === 'SUBWAY') return 'U-BAHN';
-  if (mode === 'SUBURBAN') return 'S-BAHN';
-  if (mode === 'AIRPLANE') return 'FLUG';
-
-  if (['HIGHSPEED_RAIL', 'HIGH_SPEED_RAIL', 'LONG_DISTANCE'].includes(mode)) {
-    return 'FERN';
-  }
-
-  if (['REGIONAL_RAIL', 'REGIONAL_FAST_RAIL', 'RAIL'].includes(mode)) {
-    return 'BAHN';
-  }
-
-  return mode || 'UNKNOWN';
-}
-
-/**
- * Vereinheitlicht eine Abfahrt für die weitere Verarbeitung.
- *
- * selectedStopId ist die ID der Haltestelle, für die diese Abfrage
- * gezielt ausgeführt wurde.
- *
- * Falls die API-Antwort keine place.stopId enthält, verwenden wir diese
- * bekannte Abfrage-ID als Zuordnung. Eine vorhandene ID aus der Antwort
- * bleibt dagegen erhalten.
- *
- * Die Kategorie richtet sich nach dem tatsächlichen Verkehrsmittel.
- * Die Kategorie der ausgewählten Haltestelle ist nur ein Rückfallwert.
- */
-function normalizeDeparture(
-  item,
-  selectedStopName,
-  selectedCategory,
-  selectedStopId,
-) {
-  const place = item.place ?? {};
-  const epochMs = getEpoch(getRawTime(item));
-  const mode = item.mode || 'UNKNOWN';
-
+function getClientOptions(contact = DEFAULT_CONTACT) {
   return {
-    epochMs,
-    time: epochMs !== null ? formatLocalTime(epochMs, place.tz) : null,
-    timezone: place.tz || null,
-
-    stopName: selectedStopName || place.name || 'Unbekannte Haltestelle',
-
-    stopId: place.stopId || selectedStopId || null,
-
-    mode,
-    displayedMode: displayedMode(mode),
-    category: modeCategory(mode) || selectedCategory || null,
-    line: item.routeShortName || item.route?.shortName || '',
-    destination: item.headsign || item.tripTo || '',
-    status: item.cancelled
-      ? 'CANCELLED'
-      : item.realtime
-        ? 'REALTIME'
-        : 'SCHEDULED',
-    platform: place.platform || item.platform || '',
-  };
-}
-
-/**
- * Berechnet den Suchzeitpunkt für die gewählte Anzahl an Tagen voraus.
- *
- * daysAhead = 0: aktueller Zeitpunkt, bisheriges Verhalten.
- * daysAhead = 1: aktueller Zeitpunkt plus 24 Stunden.
- * daysAhead = 2: aktueller Zeitpunkt plus 48 Stunden.
- * ...
- * daysAhead = 7: aktueller Zeitpunkt plus 168 Stunden.
- *
- * Der Zeitpunkt wird als ISO-8601-Zeitstempel mit UTC-Kennzeichnung
- * an Transitous übergeben. Dadurch ist der Zeitpunkt eindeutig und
- * nicht von der Zeitzone des Gladys-Servers abhängig.
- *
- * Hinweis: Das entspricht einer Verschiebung um volle 24-Stunden-Tage.
- * An einem Wechsel zwischen Sommer- und Winterzeit kann sich deshalb
- * die lokale Uhrzeit am Zieltag um eine Stunde unterscheiden.
- */
-function getSearchTime(daysAhead = 0) {
-  const days = Number(daysAhead);
-
-  // Ungültige Werte sicher auf das bisherige Verhalten zurücksetzen.
-  const validDays = Number.isInteger(days) &&
-    days >= 0 &&
-    days <= MAX_DAYS_AHEAD
-    ? days
-    : 0;
-
-  return Date.now() + validDays * MILLISECONDS_PER_DAY;
-}
-
-/**
- * Ruft Abfahrten entweder für einen konkreten Haltestellen-Identifier
- * oder für einen geografischen Suchbereich ab.
- *
- * searchTime ist der gemeinsame Suchzeitpunkt aller Abfragen eines
- * Widget-Aufrufs. So werden Haltestellensuche und Abfahrtsabfragen
- * auf denselben Zeitpunkt bezogen.
- */
-async function transitousQuery({
-  lat,
-  lon,
-  radius,
-  stopId,
-  searchTime,
-  n = 100,
-  contact = DEFAULT_CONTACT,
-}) {
-  const params = new URLSearchParams({
-    n: String(n),
-    language: 'en',
-
-    // Transitous erwartet einen Datum-Zeit-Wert im ISO-Format.
-    // arriveBy=false stellt ausdrücklich sicher, dass wir Abfahrten
-    // und nicht Ankünfte abfragen.
-    time: new Date(searchTime).toISOString(),
-    arriveBy: 'false',
-  });
-
-  if (stopId) {
-    params.set('stopId', stopId);
-  } else {
-    params.set('center', `${lat},${lon}`);
-    params.set('radius', String(radius));
-  }
-
-  const response = await fetch(`${API_URL}?${params}`, {
+    throwOnError: true,
+    baseUrl: TRANSITOUS_BASE_URL,
     headers: {
-      'User-Agent': `${APP_NAME}/${APP_VERSION} (${contact})`,
+      'User-Agent': `${APP_NAME}/${APP_VERSION} (${contact || DEFAULT_CONTACT})`,
       Accept: 'application/json',
     },
-    signal: AbortSignal.timeout(15000),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Transitous API: HTTP ${response.status}`);
-  }
-
-  const data = await response.json();
-
-  if (!Array.isArray(data.stopTimes)) {
-    throw new Error('Transitous-Antwort enthält keine stopTimes-Liste');
-  }
-
-  return data.stopTimes;
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  };
 }
 
 /**
- * Liefert die nächsten Abfahrten im Umkreis eines Standorts.
- *
- * lat: Breitengrad
- * lon: Längengrad
- * radius: Suchradius in Metern
- * count: Anzahl der Abfahrten (3 oder 6)
- * daysAhead: Vorausblick von 0 bis 7 Tagen; Standard ist 0
- * contact: Kontaktinformation für den Transitous-User-Agent
+ * Prüft, ob ein Wert eine gültige geografische Koordinate ist.
  */
-export async function getDepartures({
-  lat,
-  lon,
-  radius = 2000,
-  count = 6,
-  daysAhead = 0,
-  contact = DEFAULT_CONTACT,
-}) {
-  if (
-    !Number.isFinite(Number(lat)) ||
-    Number(lat) < -90 ||
-    Number(lat) > 90 ||
-    !Number.isFinite(Number(lon)) ||
-    Number(lon) < -180 ||
-    Number(lon) > 180
-  ) {
-    throw new Error('Bitte gültige Koordinaten für den Standort angeben.');
-  }
+function isValidCoordinate(lat, lon) {
+  return (
+    Number.isFinite(Number(lat)) &&
+    Number(lat) >= -90 &&
+    Number(lat) <= 90 &&
+    Number.isFinite(Number(lon)) &&
+    Number(lon) >= -180 &&
+    Number(lon) <= 180
+  );
+}
 
-  lat = Number(lat);
-  lon = Number(lon);
-  radius = Number(radius);
-  count = Number(count);
+/**
+ * Wandelt Datum und Uhrzeit aus dem Gladys-Formular in einen
+ * eindeutigen ISO-8601-Zeitstempel mit dem korrekten Berliner
+ * Zeitzonenoffset um.
+ *
+ * Beispiel:
+ * 21.10.2026 und 08:15 -> 2026-10-21T08:15:00+02:00
+ */
+function toBerlinDateTime(date, time) {
+  const [day, month, year] = date.split('.').map(Number);
+  const [hours, minutes] = time.split(':').map(Number);
 
-  if (!Number.isFinite(radius) || radius < 1 || radius > 50000) {
-    throw new Error('Der Suchradius muss zwischen 1 und 50000 Metern liegen.');
-  }
+  const localAsUtc = Date.UTC(
+    year,
+    month - 1,
+    day,
+    hours,
+    minutes,
+  );
 
-  // Es werden ausschließlich drei oder sechs Abfahrten angeboten.
-  // Ungültige Werte werden auf den Standardwert sechs zurückgesetzt.
-  if (![3, 6].includes(count)) {
-    count = 6;
-  }
-
-  // Vorausblick prüfen und den Zielzeitpunkt genau einmal berechnen.
-  // Alle nachfolgenden API-Aufrufe verwenden denselben Zeitstempel.
-  const requestedDays = Number(daysAhead);
-  daysAhead = Number.isInteger(requestedDays) &&
-    requestedDays >= 0 &&
-    requestedDays <= MAX_DAYS_AHEAD
-    ? requestedDays
-    : 0;
-
-  const searchTime = getSearchTime(daysAhead);
-
-  // 1. Haltestellen im gewählten Umkreis zum Zielzeitpunkt suchen.
-  const initial = await transitousQuery({
-    lat,
-    lon,
-    radius,
-    searchTime,
-    n: 100,
-    contact,
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Berlin',
+    timeZoneName: 'longOffset',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
   });
 
-  // 2. Die nächstgelegene Haltestelle jeder Kategorie auswählen.
-  const nearestByCategory = new Map();
+  const initialOffset = formatter
+    .formatToParts(new Date(localAsUtc))
+    .find((part) => part.type === 'timeZoneName')?.value;
 
-  for (const item of initial) {
-    const place = item.place || {};
-    const category = modeCategory(item.mode);
-
-    if (!category || !place.stopId) continue;
-
-    const stopLat = Number(place.lat);
-    const stopLon = Number(place.lon);
-
-    if (!Number.isFinite(stopLat) || !Number.isFinite(stopLon)) {
-      continue;
-    }
-
-    const distance = haversineMeters(lat, lon, stopLat, stopLon);
-    const previous = nearestByCategory.get(category);
-
-    if (!previous || distance < previous.distance) {
-      nearestByCategory.set(category, {
-        category,
-        stopId: place.stopId,
-        stopName: place.name || 'Unbekannte Haltestelle',
-        distance,
-      });
-    }
+  if (!initialOffset || !/^GMT[+-]\d{2}:\d{2}$/.test(initialOffset)) {
+    throw new Error(
+      'Der Zeitzonenoffset für Europe/Berlin konnte nicht bestimmt werden.',
+    );
   }
 
-  // Die ausgewählten Haltestellen nach Luftlinienentfernung sortieren.
-  const selected = [...nearestByCategory.values()].sort(
-    (a, b) => a.distance - b.distance,
-  );
+  const offsetMatch = initialOffset.match(/GMT([+-])(\d{2}):(\d{2})/);
+  const sign = offsetMatch[1] === '+' ? 1 : -1;
 
-  if (selected.length === 0) {
-    return {
-      query: {
-        lat,
-        lon,
-        radius,
-        count,
-        daysAhead,
-        searchTime: new Date(searchTime).toISOString(),
-      },
-      stopsSelected: [],
-      departures: [],
-      attribution: 'Transitdaten: Transitous – https://transitous.org/sources/',
-    };
+  const offsetMinutes =
+    sign * (Number(offsetMatch[2]) * 60 + Number(offsetMatch[3]));
+
+  const utcTimestamp = localAsUtc - offsetMinutes * 60 * 1000;
+  const actualOffset = formatter
+    .formatToParts(new Date(utcTimestamp))
+    .find((part) => part.type === 'timeZoneName')?.value;
+
+  if (!actualOffset || !/^GMT[+-]\d{2}:\d{2}$/.test(actualOffset)) {
+    throw new Error(
+      'Die lokale Abfahrtszeit konnte nicht umgerechnet werden.',
+    );
   }
 
-  // 3. Abfahrten der ausgewählten Haltestellen gezielt abrufen.
-  // Dieselbe Haltestelle wird nur einmal abgefragt, auch wenn sie
-  // für mehrere Verkehrsmittelkategorien ausgewählt wurde.
-  const uniqueStops = [
-    ...new Map(selected.map((stop) => [stop.stopId, stop])).values(),
-  ];
+  // Sommerzeitlücken und doppelte Uhrzeiten bei der Zeitumstellung prüfen.
+  const verifiedLocalTime = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Berlin',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(new Date(utcTimestamp));
 
-  const results = await Promise.all(
-    uniqueStops.map(async (stop) => ({
-      stopId: stop.stopId,
-      stopName: stop.stopName,
-      category: stop.category,
+  const expectedLocalTime =
+    `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/` +
+    `${String(year).padStart(4, '0')}, ` +
+    `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 
-      // Auch die Einzelabfrage erhält denselben Suchzeitpunkt.
-      stopTimes: await transitousQuery({
-        lat,
-        lon,
-        radius,
-        stopId: stop.stopId,
-        searchTime,
-        n: 100,
-        contact,
-      }),
-    })),
+  if (verifiedLocalTime !== expectedLocalTime) {
+    throw new Error(
+      'Diese Uhrzeit existiert in Europe/Berlin wegen der Zeitumstellung nicht.',
+    );
+  }
+
+  const isoDate =
+    `${String(year).padStart(4, '0')}-` +
+    `${String(month).padStart(2, '0')}-` +
+    `${String(day).padStart(2, '0')}`;
+
+  const isoTime =
+    `${String(hours).padStart(2, '0')}:` +
+    `${String(minutes).padStart(2, '0')}:00`;
+
+  return `${isoDate}T${isoTime}${actualOffset.slice(3)}`;
+}
+
+/**
+ * Löst einen Ortsnamen über die offizielle MOTIS-Geocoding-Funktion auf.
+ *
+ * Die API liefert ein Array von Treffern mit name, id, lat und lon.
+ * Die Ergebnisse werden nicht als { places: [...] } vorausgesetzt.
+ */
+async function geocodePlace(query, contact = DEFAULT_CONTACT) {
+  const text = String(query ?? '').trim();
+
+  if (!text) {
+    throw new Error('Der Ortsname darf nicht leer sein.');
+  }
+
+  const places = await geocode({
+    ...getClientOptions(contact),
+    query: {
+      text,
+      language: ['de'],
+      numResults: 5,
+    },
+  });
+
+  if (!Array.isArray(places)) {
+    throw new Error(
+      `Transitous lieferte für „${text}“ eine ungültige Geocoding-Antwort.`,
+    );
+  }
+
+  const place = places.find(
+    (item) =>
+      item &&
+      isValidCoordinate(item.lat, item.lon),
   );
 
-  // 4. Zeiten vereinheitlichen, Abfahrten vor dem Suchzeitpunkt entfernen
-  // und chronologisch sortieren.
-  //
-  // Bei daysAhead = 0 entspricht das dem bisherigen Verhalten.
-  // Bei daysAhead > 0 werden Abfahrten vor dem gewählten Zukunftszeitpunkt
-  // ausgeschlossen, nicht lediglich solche vor der aktuellen Uhrzeit.
-  const normalized = results
-    .flatMap((result) =>
-      result.stopTimes.map((item) =>
-        normalizeDeparture(
-          item,
-          result.stopName,
-          result.category,
-          result.stopId,
-        ),
-      ),
-    )
-    .filter(
-      (item) =>
-        item.epochMs !== null &&
-        item.epochMs >= searchTime - 60_000,
-    )
-    .sort((a, b) => a.epochMs - b.epochMs);
-
-  // 5. Doppelte Abfahrten entfernen und die gewünschte Anzahl auswählen.
-  const seen = new Set();
-  const departures = [];
-
-  for (const item of normalized) {
-    const key = `${item.stopId}|${item.line}|${item.destination}|${item.epochMs}`;
-
-    if (seen.has(key)) continue;
-
-    seen.add(key);
-    departures.push(item);
-
-    if (departures.length >= count) break;
+  if (!place) {
+    throw new Error(`Der Ort „${text}“ wurde nicht gefunden.`);
   }
 
   return {
-    query: {
-      lat,
-      lon,
-      radius,
-      count,
-      daysAhead,
-      searchTime: new Date(searchTime).toISOString(),
-    },
-    stopsSelected: selected.map((stop) => ({
-      category: stop.category,
-      name: stop.stopName,
-      stopId: stop.stopId,
-      distanceMeters: Math.round(stop.distance),
-    })),
-    departures,
-    attribution: 'Transitdaten: Transitous – https://transitous.org/sources/',
+    lat: Number(place.lat),
+    lon: Number(place.lon),
+    name: place.name || text,
+    id: place.id || null,
+    type: place.type || null,
   };
+}
+
+/**
+ * Formatiert einen Zeitpunkt in deutscher Darstellung.
+ */
+function formatRouteTime(value) {
+  if (value === undefined || value === null) {
+    return 'unbekannt';
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return new Intl.DateTimeFormat('de-DE', {
+    timeZone: 'Europe/Berlin',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
+/**
+ * Formatiert eine Fahrtdauer aus Start- und Endzeit.
+ */
+function formatDuration(start, end) {
+  const startTime = new Date(start).getTime();
+  const endTime = new Date(end).getTime();
+
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) {
+    return '';
+  }
+
+  const minutes = Math.round((endTime - startTime) / 60000);
+
+  if (minutes < 0) {
+    return '';
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+
+  if (hours > 0) {
+    return `${hours} Std. ${remainingMinutes} Min.`;
+  }
+
+  return `${remainingMinutes} Min.`;
+}
+
+/**
+ * Formatiert einen Abschnitt einer Verbindung.
+ */
+function formatLeg(leg) {
+  const from = leg.from?.name ?? leg.from?.id ?? 'Start';
+  const to = leg.to?.name ?? leg.to?.id ?? 'Ziel';
+  const mode = leg.mode ?? 'Verbindung';
+
+  const line =
+    leg.routeShortName ??
+    leg.displayName ??
+    leg.trip?.route?.shortName;
+
+  return (
+    `${formatRouteTime(leg.startTime)} – ` +
+    `${formatRouteTime(leg.endTime)}: ` +
+    `${mode}${line ? ` ${line}` : ''}\n` +
+    `${from} → ${to}`
+  );
+}
+
+/**
+ * Vereinheitlicht die von MOTIS gelieferten Verbindungen für Gladys.
+ *
+ * Die Funktion erwartet das Itinerary-Array aus der Plan-Antwort.
+ * Die Ergebnisobjekte enthalten nur die Daten, die widgets.js zur
+ * Darstellung als Gladys-Karten benötigt.
+ */
+function normalizeRoutes(itineraries, start, destination, date, time) {
+  if (!Array.isArray(itineraries)) {
+    throw new Error(
+      'Transitous lieferte keine gültige Liste von Verbindungen.',
+    );
+  }
+
+  return itineraries.slice(0, 5).map((itinerary, index) => {
+    const legs = Array.isArray(itinerary.legs) ? itinerary.legs : [];
+    const departure = itinerary.startTime ?? legs[0]?.startTime;
+    const arrival = itinerary.endTime ?? legs.at(-1)?.endTime;
+
+    const transfers = Number.isFinite(itinerary.transfers)
+      ? itinerary.transfers
+      : Math.max(
+          0,
+          legs.filter((leg) => {
+            const mode = String(leg.mode ?? '').toUpperCase();
+
+            return mode && !['WALK', 'FOOT', 'TRANSFER'].includes(mode);
+          }).length - 1,
+        );
+
+    const duration = formatDuration(departure, arrival);
+    const legDetails = legs.map(formatLeg);
+
+    return {
+      title: `Verbindung ${index + 1}`,
+      subtitle:
+        `${formatRouteTime(departure)} – ${formatRouteTime(arrival)}` +
+        `${duration ? ` · ${duration}` : ''} · ` +
+        `${transfers} Umstieg${transfers === 1 ? '' : 'e'}`,
+      description:
+        `Start: ${start}\nZiel: ${destination}\n` +
+        `Datum: ${date}\nUhrzeit: ${time}\n\n` +
+        (legDetails.length
+          ? legDetails.join('\n\n')
+          : 'Für diese Verbindung liegen keine Detailangaben vor.') +
+        '\n\nFahrplandaten: Transitous – https://transitous.org/sources/',
+    };
+  });
+}
+
+/**
+ * Sucht echte ÖPNV-Verbindungen zwischen zwei Orten.
+ *
+ * Öffentliche Schnittstelle für src/widgets.js:
+ *
+ * const routes = await searchRoutes({
+ *   start,
+ *   destination,
+ *   date,
+ *   time,
+ *   contact,
+ * });
+ *
+ * Rückgabe: Array von Gladys-kompatiblen Kartenobjekten.
+ */
+export async function searchRoutes({
+  start,
+  destination,
+  date,
+  time,
+  contact = DEFAULT_CONTACT,
+} = {}) {
+  const normalizedStart = String(start ?? '').trim();
+  const normalizedDestination = String(destination ?? '').trim();
+
+  if (!normalizedStart || !normalizedDestination) {
+    throw new Error('Start und Ziel müssen angegeben werden.');
+  }
+
+  if (!date || !time) {
+    throw new Error('Datum und Uhrzeit müssen angegeben werden.');
+  }
+
+  const departureTime = toBerlinDateTime(date, time);
+
+  // Start und Ziel auflösen. Beide Aufrufe laufen parallel.
+  const [fromPlace, toPlace] = await Promise.all([
+    geocodePlace(normalizedStart, contact),
+    geocodePlace(normalizedDestination, contact),
+  ]);
+
+  const response = await plan({
+    ...getClientOptions(contact),
+    query: {
+      fromPlace: `${fromPlace.lat},${fromPlace.lon}`,
+      toPlace: `${toPlace.lat},${toPlace.lon}`,
+      time: departureTime,
+      arriveBy: false,
+      language: ['de'],
+      numItineraries: 5,
+      timetableView: true,
+    },
+  });
+
+  const itineraries = response?.itineraries;
+
+  if (!Array.isArray(itineraries)) {
+    throw new Error(
+      'Transitous lieferte eine ungültige Routenantwort.',
+    );
+  }
+
+  return normalizeRoutes(
+    itineraries,
+    normalizedStart,
+    normalizedDestination,
+    date,
+    time,
+  );
 }
