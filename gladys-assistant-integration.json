@@ -20,7 +20,7 @@
   "location": true,
   "widgets": [
     {
-      "key": "transitous_departures",
+      "key": "transitous_routing",
       "label": {
         "en": "Transitous Route Test",
         "de": "Transitous Fahrplanauskunft"

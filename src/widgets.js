@@ -1,25 +1,101 @@
 
 import { logger } from '@gladysassistant/integration-sdk';
 
-export const TRANSITOUS_DEPARTURES_WIDGET = 'transitous_departures';
+export const TRANSITOUS_ROUTING_WIDGET = 'transitous_routing';
 
-// Ergebnisse je Widget-Konfiguration zwischenspeichern.
+// Simulierte Verbindungen getrennt nach Widget-Konfiguration speichern.
 const routeResults = new Map();
 
+// Die zuletzt erfolgreich von Gladys geladenen Häuser.
+// Die Liste wird beim Verbindungsaufbau in index.js aktualisiert.
+let gladysHouses = [];
+
+// Einen Schlüssel für die jeweilige Widget-Konfiguration erzeugen.
 function getWidgetKey(settings = {}) {
   return JSON.stringify(settings);
 }
 
-// Konfigurationswerte für die späteren echten Routenabfragen.
+// Häuser aus Gladys laden und im Speicher ablegen.
+// Bei einem Fehler bleibt die bisherige Liste erhalten.
+export async function refreshHouses(gladys) {
+  const houses = await gladys.getHouses();
+
+  if (!Array.isArray(houses)) {
+    throw new Error('getHouses() hat keine gültige Hausliste geliefert.');
+  }
+
+  gladysHouses = houses;
+
+  logger.info(
+    `[Route-Test] ${gladysHouses.length} Gladys-Haus/Häuser geladen.`,
+  );
+}
+
+// Das konfigurierte Haus ermitteln.
+// Falls es nicht mehr existiert, wird das erste verfügbare Haus verwendet.
+function resolveHouse(settings = {}) {
+  if (settings.house) {
+    const configuredHouse = gladysHouses.find(
+      (house) => house.selector === settings.house,
+    );
+
+    if (configuredHouse) {
+      return configuredHouse;
+    }
+
+    logger.info(
+      '[Route-Test] Konfiguriertes Haus nicht gefunden; ' +
+        'verwende ein verfügbares Haus als Standard.',
+    );
+  }
+
+  return gladysHouses[0] ?? null;
+}
+
+// Prüfen, ob ein Koordinatenwert vorhanden und numerisch ist.
+function hasCoordinate(value) {
+  return (
+    value !== null &&
+    value !== undefined &&
+    value !== '' &&
+    Number.isFinite(Number(value))
+  );
+}
+
+// Hausdaten und manuelle Koordinaten zusammenführen.
+// Vorhandene Hauskoordinaten haben Vorrang.
 function getConfiguration(settings = {}) {
+  const selectedHouse = resolveHouse(settings);
+
+  const houseLatitude = selectedHouse?.latitude;
+  const houseLongitude = selectedHouse?.longitude;
+
+  const latitude = hasCoordinate(houseLatitude)
+    ? houseLatitude
+    : settings.latitude;
+
+  const longitude = hasCoordinate(houseLongitude)
+    ? houseLongitude
+    : settings.longitude;
+
+  // Keine konkreten Koordinaten in die Logs schreiben.
+  if (selectedHouse) {
+    logger.info(
+      `[Route-Test] Konfiguriertes Haus: "${selectedHouse.name}". ` +
+        `Breitengrad vorhanden: ${hasCoordinate(houseLatitude)}; ` +
+        `Längengrad vorhanden: ${hasCoordinate(houseLongitude)}.`,
+    );
+  }
+
   return {
-    house: settings.house ?? '(nicht gesetzt)',
-    latitude: settings.latitude ?? '(nicht gesetzt)',
-    longitude: settings.longitude ?? '(nicht gesetzt)',
+    house: selectedHouse?.name ?? '(nicht gesetzt)',
+    latitude: latitude ?? '(nicht gesetzt)',
+    longitude: longitude ?? '(nicht gesetzt)',
     contact: settings.contact ?? '(nicht gesetzt)',
   };
 }
 
+// Ein Datum im Format TT.MM.JJJJ prüfen.
 function isValidDate(value) {
   if (!/^\d{2}\.\d{2}\.\d{4}$/.test(value)) {
     return false;
@@ -31,9 +107,29 @@ function isValidDate(value) {
     return false;
   }
 
-  return day <= new Date(year, month, 0).getDate();
+  // Monatslängen einschließlich Schaltjahren bestimmen.
+  const isLeapYear =
+    year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+
+  const daysPerMonth = [
+    31,
+    isLeapYear ? 29 : 28,
+    31,
+    30,
+    31,
+    30,
+    31,
+    31,
+    30,
+    31,
+    30,
+    31,
+  ];
+
+  return day <= daysPerMonth[month - 1];
 }
 
+// Eine Uhrzeit im Format HH:mm prüfen.
 function isValidTime(value) {
   if (!/^\d{2}:\d{2}$/.test(value)) {
     return false;
@@ -45,6 +141,7 @@ function isValidTime(value) {
 }
 
 // Drei simulierte Verbindungen für den Funktionstest.
+// Eine echte Transitous-Abfrage folgt später.
 function getRoute({ start, destination, date, time, configuration }) {
   const configText =
     `Gladys-Zuhause: ${configuration.house}\n` +
@@ -83,50 +180,66 @@ function getRoute({ start, destination, date, time, configuration }) {
   ];
 }
 
-const routeFormFields = [
-  {
-    key: 'start',
-    type: 'string',
-    required: true,
-    label: {
-      de: 'Start',
-      en: 'Departure',
-      fr: 'Départ',
-    },
-  },
-  {
-    key: 'destination',
-    type: 'string',
-    required: true,
-    label: {
-      de: 'Ziel',
-      en: 'Destination',
-      fr: 'Destination',
-    },
-  },
-  {
-    key: 'date',
-    type: 'string',
-    required: true,
-    label: {
-      de: 'Datum (TT.MM.JJJJ)',
-      en: 'Date (DD.MM.YYYY)',
-      fr: 'Date (JJ.MM.AAAA)',
-    },
-  },
-  {
-    key: 'time',
-    type: 'string',
-    required: true,
-    label: {
-      de: 'Uhrzeit (HH:mm)',
-      en: 'Time (HH:mm, 24-hour)',
-      fr: 'Heure (HH:mm, 24 h)',
-    },
-  },
-];
+// Vier Formularfelder: Start, Ziel, Datum und Uhrzeit.
+// Der Start wird aus dem konfigurierten Haus vorbelegt.
+function createRouteFields(settings = {}) {
+  const selectedHouse = resolveHouse(settings);
 
-function createRouteButton() {
+  const defaultDate = new Date().toLocaleDateString('de-DE', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+
+  return [
+    {
+      key: 'start',
+      type: 'string',
+      required: true,
+      label: {
+        de: 'Start',
+        en: 'Departure',
+        fr: 'Départ',
+      },
+      default: selectedHouse?.name ?? '',
+    },
+    {
+      key: 'destination',
+      type: 'string',
+      required: true,
+      label: {
+        de: 'Ziel',
+        en: 'Destination',
+        fr: 'Destination',
+      },
+    },
+    {
+      key: 'date',
+      type: 'string',
+      required: true,
+      label: {
+        de: 'Datum (TT.MM.JJJJ)',
+        en: 'Date (DD.MM.YYYY)',
+        fr: 'Date (JJ.MM.AAAA)',
+      },
+      default: defaultDate,
+    },
+    {
+      key: 'time',
+      type: 'string',
+      required: true,
+      label: {
+        de: 'Uhrzeit (HH:mm)',
+        en: 'Time (HH:mm)',
+        fr: 'Heure (HH:mm)',
+      },
+      default: '08:15',
+    },
+  ];
+}
+
+// Ein einzelner Button öffnet das Vier-Felder-Formular.
+function createRouteButton(settings = {}) {
   return {
     type: 'button',
     label: {
@@ -138,16 +251,16 @@ function createRouteButton() {
     style: 'primary',
     action: {
       key: 'get_route',
-      fields: routeFormFields,
+      fields: createRouteFields(settings),
     },
   };
 }
 
 export const WIDGETS = {
-  [TRANSITOUS_DEPARTURES_WIDGET]: {
+  [TRANSITOUS_ROUTING_WIDGET]: {
     async get(gladys, { settings = {} } = {}) {
+      // Bereits erzeugte Verbindungen weiterhin anzeigen.
       const savedRoutes = routeResults.get(getWidgetKey(settings));
-
       const components = [];
 
       if (savedRoutes) {
@@ -158,25 +271,31 @@ export const WIDGETS = {
         });
       }
 
-      components.push(createRouteButton());
+      // Keine Haus-Buttons mehr: nur ein Startbutton.
+      components.push(createRouteButton(settings));
 
       return {
-        ttl_seconds: 3600,
+        ttl_seconds: 60,
         components,
       };
     },
 
-    async action(gladys, { actionKey, settings = {}, values } = {}) {
+    async action(
+      gladys,
+      { actionKey, settings = {}, values } = {},
+    ) {
       if (actionKey !== 'get_route') {
         return;
       }
 
+      // Alle vier Formularfelder prüfen.
       const requiredFields = ['start', 'destination', 'date', 'time'];
 
-      const missingFields = requiredFields.filter(
-        (key) =>
-          typeof values?.[key] !== 'string' || !values[key].trim(),
-      );
+      const missingFields = requiredFields.filter((key) => {
+        const value = values?.[key];
+
+        return typeof value !== 'string' || value.trim() === '';
+      });
 
       if (missingFields.length > 0) {
         return {
@@ -186,31 +305,34 @@ export const WIDGETS = {
         };
       }
 
+      const start = values.start.trim();
+      const destination = values.destination.trim();
       const date = values.date.trim();
       const time = values.time.trim();
 
-      if (!isValidDate(date)) {
+      // Datum und Uhrzeit unabhängig voneinander validieren.
+      if (!isValidDate(date) || !isValidTime(time)) {
         return {
-          de: 'Ungültiges Datum. Bitte TT.MM.JJJJ verwenden, z. B. 20.10.2026.',
-          en: 'Invalid date. Use DD.MM.YYYY, e.g. 20.10.2026.',
-          fr: 'Date invalide. Utilisez JJ.MM.AAAA, par ex. 20.10.2026.',
+          de:
+            'Datum oder Uhrzeit ungültig. Bitte TT.MM.JJJJ und HH:mm ' +
+            'verwenden, z. B. 21.10.2026 und 08:15.',
+          en:
+            'Invalid date or time. Use DD.MM.YYYY and HH:mm, ' +
+            'e.g. 21.10.2026 and 08:15.',
+          fr:
+            'Date ou heure invalide. Utilisez JJ.MM.AAAA et HH:mm.',
         };
       }
 
-      if (!isValidTime(time)) {
-        return {
-          de: 'Ungültige Uhrzeit. Bitte HH:mm verwenden, z. B. 08:15.',
-          en: 'Invalid time. Use HH:mm, e.g. 08:15.',
-          fr: 'Heure invalide. Utilisez HH:mm, par ex. 08:15.',
-        };
-      }
+      // Das in der Konfiguration ausgewählte Haus verwenden.
+      const configuration = getConfiguration(settings);
 
       const routes = getRoute({
-        start: values.start.trim(),
-        destination: values.destination.trim(),
+        start,
+        destination,
         date,
         time,
-        configuration: getConfiguration(settings),
+        configuration,
       });
 
       routeResults.set(getWidgetKey(settings), routes);
@@ -218,8 +340,6 @@ export const WIDGETS = {
       logger.info(
         `[Route-Test] ${routes.length} simulierte Verbindungen erzeugt.`,
       );
-
-      gladys.requestWidgetRefresh(TRANSITOUS_DEPARTURES_WIDGET);
 
       return {
         de: 'Drei Testverbindungen wurden erzeugt.',
@@ -230,6 +350,7 @@ export const WIDGETS = {
   },
 };
 
+// Widgets nach Konfigurationsänderungen oder Verbindungsaufbau aktualisieren.
 export function refreshWidgets(gladys) {
   for (const key of Object.keys(WIDGETS)) {
     gladys.requestWidgetRefresh(key);
