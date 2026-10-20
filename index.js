@@ -3,7 +3,7 @@ import { GladysIntegration, logger } from '@gladysassistant/integration-sdk';
 import {
   WIDGETS,
   refreshWidgets,
-  refreshHouses, // Neu: lädt die Häuser aus Gladys.
+  refreshHouses,
 } from './src/widgets.js';
 
 const gladys = new GladysIntegration();
@@ -14,8 +14,7 @@ for (const [widgetKey, widget] of Object.entries(WIDGETS)) {
     widget.get(gladys, request ?? {}),
   );
 
-  // Formularwerte müssen zusätzlich zu actionKey, params und settings
-  // an die Widget-Aktion weitergegeben werden.
+  // Formularwerte werden zusätzlich zu actionKey, params und settings weitergereicht.
   if (typeof widget.action === 'function') {
     gladys.onWidgetAction(
       widgetKey,
@@ -38,13 +37,12 @@ gladys.onConfigUpdated(async () => {
   refreshWidgets(gladys);
 });
 
-// Nach erfolgreicher Verbindung Häuser laden, Status setzen und Widgets aktualisieren.
-// Der SDK-Handler wird bei einer erneuten Verbindung ebenfalls aufgerufen.
+// Nach erfolgreicher Verbindung die Häuser laden, den Status setzen
+// und die Widgets aktualisieren. Dies geschieht auch bei erneuter Verbindung.
 gladys.on('connected', async () => {
   logger.info('[Route-Test] Verbindung zu Gladys hergestellt.');
 
   try {
-    // Neu: Hausliste laden, bevor wir die Initialisierung abschließen.
     await refreshHouses(gladys);
 
     await gladys.setConnectionStatus(true);
