@@ -9,11 +9,13 @@ const routeResults = new Map();
 // Die zuletzt erfolgreich von Gladys geladene Hausliste.
 let gladysHouses = [];
 
+// Eine stabile Kennung für die jeweilige Widget-Konfiguration erzeugen.
 function getWidgetKey(settings = {}) {
   return JSON.stringify(settings);
 }
 
-// Häuser aus Gladys laden und die bisherige Liste nur bei Erfolg ersetzen.
+// Häuser aus Gladys laden.
+// Bei einem Fehler bleibt die letzte erfolgreich geladene Liste erhalten.
 export async function refreshHouses(gladys) {
   const houses = await gladys.getHouses();
 
@@ -28,16 +30,24 @@ export async function refreshHouses(gladys) {
   );
 }
 
-// Haus anhand des in der Konfiguration gespeicherten selectors finden.
-// Falls genau ein Haus existiert und keines ausgewählt wurde,
-// verwenden wir dieses Haus automatisch.
-function resolveHouse(settings = {}) {
+// Ein Haus anhand seines Gladys-selectors finden.
+// Bei mehreren Häusern wird ohne Auswahl kein Haus stillschweigend angenommen.
+function resolveHouse(settings = {}, houseSelector = undefined) {
+  // Eine ausdrücklich im Formular gewählte Hauskennung hat Vorrang.
+  if (houseSelector !== undefined && houseSelector !== null) {
+    return (
+      gladysHouses.find((house) => house.selector === houseSelector) ?? null
+    );
+  }
+
+  // Anschließend die dauerhafte Widget-Konfiguration berücksichtigen.
   if (settings.house) {
     return (
       gladysHouses.find((house) => house.selector === settings.house) ?? null
     );
   }
 
+  // Ohne Konfiguration lässt sich ein einzelnes Haus eindeutig zuordnen.
   if (gladysHouses.length === 1) {
     return gladysHouses[0];
   }
@@ -45,7 +55,24 @@ function resolveHouse(settings = {}) {
   return null;
 }
 
-// Prüfen, ob ein Koordinatenwert numerisch und vorhanden ist.
+// Standardhaus für das Formular ermitteln.
+// Bei mehreren Häusern ist das konfigurierte Haus bevorzugt;
+// fehlt es oder ist es nicht mehr vorhanden, wird das erste Haus angeboten.
+function resolveDefaultHouse(settings = {}) {
+  const configuredHouse = resolveHouse(settings);
+
+  if (configuredHouse) {
+    return configuredHouse;
+  }
+
+  if (gladysHouses.length > 0) {
+    return gladysHouses[0];
+  }
+
+  return null;
+}
+
+// Prüfen, ob ein Koordinatenwert vorhanden und numerisch ist.
 function hasCoordinate(value) {
   return (
     value !== null &&
@@ -56,12 +83,14 @@ function hasCoordinate(value) {
 }
 
 // Hausdaten und manuelle Rückfallwerte zusammenführen.
-function getConfiguration(settings = {}) {
-  const selectedHouse = resolveHouse(settings);
+// houseSelector wird bei einer Auswahl im Formular übergeben.
+function getConfiguration(settings = {}, houseSelector = undefined) {
+  const selectedHouse = resolveHouse(settings, houseSelector);
 
   const houseLatitude = selectedHouse?.latitude;
   const houseLongitude = selectedHouse?.longitude;
 
+  // Vorhandene Hauskoordinaten haben Vorrang vor manuellen Werten.
   const latitude = hasCoordinate(houseLatitude)
     ? houseLatitude
     : settings.latitude;
@@ -77,9 +106,9 @@ function getConfiguration(settings = {}) {
         `Breitengrad vorhanden: ${hasCoordinate(houseLatitude)}; ` +
         `Längengrad vorhanden: ${hasCoordinate(houseLongitude)}.`,
     );
-  } else if (settings.house) {
+  } else if (settings.house || houseSelector !== undefined) {
     logger.info(
-      '[Route-Test] Konfiguriertes Haus wurde in der geladenen Hausliste nicht gefunden.',
+      '[Route-Test] Gewähltes oder konfiguriertes Haus wurde nicht gefunden.',
     );
   }
 
@@ -91,6 +120,7 @@ function getConfiguration(settings = {}) {
   };
 }
 
+// Ein Datum im Format TT.MM.JJJJ prüfen.
 function isValidDate(value) {
   if (!/^\d{2}\.\d{2}\.\d{4}$/.test(value)) {
     return false;
@@ -105,6 +135,7 @@ function isValidDate(value) {
   return day <= new Date(year, month, 0).getDate();
 }
 
+// Eine Uhrzeit im 24-Stunden-Format HH:mm prüfen.
 function isValidTime(value) {
   if (!/^\d{2}:\d{2}$/.test(value)) {
     return false;
@@ -115,7 +146,26 @@ function isValidTime(value) {
   return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
 }
 
+// Das kombinierte Eingabefeld in Datum und Uhrzeit zerlegen.
+// Erwartetes Format: TT.MM.JJJJ HH:mm
+function parseDateTime(value) {
+  const match = /^(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})$/.exec(value);
+
+  if (!match) {
+    return null;
+  }
+
+  const [, date, time] = match;
+
+  if (!isValidDate(date) || !isValidTime(time)) {
+    return null;
+  }
+
+  return { date, time };
+}
+
 // Drei simulierte Verbindungen für den Funktionstest.
+// Diese Funktion bleibt bis zur späteren Transitous-Anbindung unverändert.
 function getRoute({ start, destination, date, time, configuration }) {
   const configText =
     `Gladys-Zuhause: ${configuration.house}\n` +
@@ -154,7 +204,9 @@ function getRoute({ start, destination, date, time, configuration }) {
   ];
 }
 
-const routeFormFields = [
+// Die drei immer vorhandenen Formularfelder.
+// Datum und Uhrzeit belegen jetzt gemeinsam nur noch ein Feld.
+const baseRouteFormFields = [
   {
     key: 'start',
     type: 'string',
@@ -176,42 +228,80 @@ const routeFormFields = [
     },
   },
   {
-    key: 'date',
+    key: 'date_time',
     type: 'string',
     required: true,
     label: {
-      de: 'Datum (TT.MM.JJJJ)',
-      en: 'Date (DD.MM.YYYY)',
-      fr: 'Date (JJ.MM.AAAA)',
-    },
-  },
-  {
-    key: 'time',
-    type: 'string',
-    required: true,
-    label: {
-      de: 'Uhrzeit (HH:mm)',
-      en: 'Time (HH:mm, 24-hour)',
-      fr: 'Heure (HH:mm, 24 h)',
+      de: 'Datum und Uhrzeit (TT.MM.JJJJ HH:mm)',
+      en: 'Date and time (DD.MM.YYYY HH:mm)',
+      fr: 'Date et heure (JJ.MM.AAAA HH:mm)',
     },
   },
 ];
 
-// Formular-Button erzeugen und den Hausnamen als Startwert vorbelegen.
-function createRouteButton(settings = {}) {
-  const selectedHouse = resolveHouse(settings);
+// Die Formularfelder abhängig von der Zahl der vorhandenen Häuser erstellen.
+// Bei genau einem Haus ist kein Auswahlfeld erforderlich.
+// Bei mehreren Häusern wird ein viertes Feld für die Hausauswahl ergänzt.
+function createRouteFields(settings = {}) {
+  const defaultHouse = resolveDefaultHouse(settings);
 
-  const fields = routeFormFields.map((field) => {
-    if (field.key === 'start' && selectedHouse?.name) {
+  const fields = baseRouteFormFields.map((field) => {
+    if (field.key === 'start' && defaultHouse?.name) {
       return {
         ...field,
-        default: selectedHouse.name,
+        // Das Haus ist ein Vorschlag, der Start bleibt frei editierbar.
+        default: defaultHouse.name,
+      };
+    }
+
+    if (field.key === 'date_time') {
+      return {
+        ...field,
+        // Das aktuelle lokale Datum und eine Beispieluhrzeit dienen
+        // als Eingabevorschlag. Die eigentliche Validierung bleibt separat.
+        default: `${new Date().toLocaleDateString('de-DE', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+        })} 08:15`,
       };
     }
 
     return field;
   });
 
+  if (gladysHouses.length > 1) {
+    // Die Hausauswahl verwendet statische Optionen aus der aktuellen
+    // Hausliste. "source: houses" ist für dieses Aktionsformular nicht
+    // zulässig; deshalb werden label und selector hier selbst angegeben.
+    fields.push({
+      key: 'house',
+      type: 'select',
+      required: true,
+      label: {
+        de: 'Gladys-Zuhause',
+        en: 'Gladys home',
+        fr: 'Domicile Gladys',
+      },
+      options: gladysHouses.map((house) => ({
+        label: {
+          de: house.name,
+          en: house.name,
+          fr: house.name,
+        },
+        value: house.selector,
+      })),
+      // Die konfigurierte Hausauswahl ist bevorzugt.
+      // Falls sie nicht mehr existiert, wird das erste Haus vorausgewählt.
+      default: defaultHouse?.selector,
+    });
+  }
+
+  return fields;
+}
+
+// Den Button und sein dynamisch aufgebautes Formular erzeugen.
+function createRouteButton(settings = {}) {
   return {
     type: 'button',
     label: {
@@ -223,7 +313,7 @@ function createRouteButton(settings = {}) {
     style: 'primary',
     action: {
       key: 'get_route',
-      fields,
+      fields: createRouteFields(settings),
     },
   };
 }
@@ -231,16 +321,16 @@ function createRouteButton(settings = {}) {
 export const WIDGETS = {
   [TRANSITOUS_ROUTING_WIDGET]: {
     async get(gladys, { settings = {} } = {}) {
-      // Neu: Die Hausliste bei jedem Widget-Abruf aktualisieren.
-      // So werden nachträglich angelegte Häuser ebenfalls erkannt.
+      // Die Hausliste bei jedem Widget-Abruf aktualisieren.
+      // So werden nachträglich angelegte oder geänderte Häuser erkannt.
       try {
         await refreshHouses(gladys);
       } catch (err) {
-        // refreshHouses ersetzt die bisherige Liste nur bei Erfolg.
         // Bei einem vorübergehenden Fehler bleibt die letzte gültige
-        // Hausliste verfügbar, damit das Widget weiter angezeigt wird.
+        // Hausliste erhalten und das Widget kann weiter angezeigt werden.
         logger.error(
-          '[Route-Test] Aktualisierung der Hausliste fehlgeschlagen; verwende die letzte bekannte Liste.',
+          '[Route-Test] Aktualisierung der Hausliste fehlgeschlagen; ' +
+            'verwende die letzte bekannte Liste.',
           err,
         );
       }
@@ -264,54 +354,100 @@ export const WIDGETS = {
       };
     },
 
-    async action(gladys, { actionKey, settings = {}, values } = {}) {
+    async action(
+      gladys,
+      { actionKey, settings = {}, values } = {},
+    ) {
       if (actionKey !== 'get_route') {
         return;
       }
 
-      const requiredFields = ['start', 'destination', 'date', 'time'];
+      // Vor der Verarbeitung erneut versuchen, die aktuelle Hausliste
+      // zu laden. Schlägt das fehl, bleibt die letzte Liste erhalten.
+      try {
+        await refreshHouses(gladys);
+      } catch (err) {
+        logger.error(
+          '[Route-Test] Hausliste vor der Anfrage konnte nicht ' +
+            'aktualisiert werden; verwende die letzte bekannte Liste.',
+          err,
+        );
+      }
 
-      const missingFields = requiredFields.filter(
-        (key) =>
-          typeof values?.[key] !== 'string' || !values[key].trim(),
-      );
+      const requiredFields = ['start', 'destination', 'date_time'];
+
+      // Bei mehreren Häusern ist die Hausauswahl ein Pflichtfeld.
+      if (gladysHouses.length > 1) {
+        requiredFields.push('house');
+      }
+
+      const missingFields = requiredFields.filter((key) => {
+        const value = values?.[key];
+
+        return (
+          (typeof value !== 'string' && typeof value !== 'number') ||
+          String(value).trim() === ''
+        );
+      });
 
       if (missingFields.length > 0) {
         return {
-          de: 'Bitte alle vier Formularfelder ausfüllen.',
-          en: 'Please complete all four form fields.',
-          fr: 'Veuillez remplir les quatre champs du formulaire.',
+          de: 'Bitte alle erforderlichen Formularfelder ausfüllen.',
+          en: 'Please complete all required form fields.',
+          fr: 'Veuillez remplir tous les champs obligatoires.',
         };
       }
 
-      const date = values.date.trim();
-      const time = values.time.trim();
+      const originalStart = String(values.start).trim();
+      const destination = String(values.destination).trim();
+      const dateTime = String(values.date_time).trim();
 
-      if (!isValidDate(date)) {
+      // Datum und Uhrzeit getrennt prüfen, obwohl sie gemeinsam
+      // eingegeben werden. Beide bisherigen Validierungen bleiben erhalten.
+      const parsedDateTime = parseDateTime(dateTime);
+
+      if (!parsedDateTime) {
         return {
-          de: 'Ungültiges Datum. Bitte TT.MM.JJJJ verwenden, z. B. 20.10.2026.',
-          en: 'Invalid date. Use DD.MM.YYYY, e.g. 20.10.2026.',
-          fr: 'Date invalide. Utilisez JJ.MM.AAAA, par ex. 20.10.2026.',
+          de:
+            'Ungültiges Datum oder ungültige Uhrzeit. ' +
+            'Bitte TT.MM.JJJJ HH:mm verwenden, z. B. 20.10.2026 08:15.',
+          en:
+            'Invalid date or time. Use DD.MM.YYYY HH:mm, ' +
+            'e.g. 20.10.2026 08:15.',
+          fr:
+            'Date ou heure invalide. Utilisez JJ.MM.AAAA HH:mm, ' +
+            'par ex. 20.10.2026 08:15.',
         };
       }
 
-      if (!isValidTime(time)) {
-        return {
-          de: 'Ungültige Uhrzeit. Bitte HH:mm verwenden, z. B. 08:15.',
-          en: 'Invalid time. Use HH:mm, e.g. 08:15.',
-          fr: 'Heure invalide. Utilisez HH:mm, par ex. 08:15.',
-        };
-      }
+      // Wenn mehrere Häuser existieren, gilt die Auswahl aus dem Formular.
+      // Bei einem Haus wird die bisherige Konfiguration verwendet.
+      const selectedHouseSelector =
+        gladysHouses.length > 1 ? String(values.house) : undefined;
 
-      // Die Hausliste wurde beim Öffnen des Formulars aktualisiert.
-      // Die Konfiguration wird hier erneut ausgewertet.
-      const configuration = getConfiguration(settings);
+      const configuration = getConfiguration(
+        settings,
+        selectedHouseSelector,
+      );
+
+      // Wurde ein anderes Haus gewählt und der Start nicht manuell geändert,
+      // übernehmen wir den neuen Hausnamen als Start.
+      // Ein frei eingetragener Startort bleibt unverändert.
+      const selectedHouse = resolveHouse(settings, selectedHouseSelector);
+      const defaultHouse = resolveDefaultHouse(settings);
+
+      const start =
+        selectedHouse?.name &&
+        defaultHouse?.name &&
+        originalStart === defaultHouse.name
+          ? selectedHouse.name
+          : originalStart;
 
       const routes = getRoute({
-        start: values.start.trim(),
-        destination: values.destination.trim(),
-        date,
-        time,
+        start,
+        destination,
+        date: parsedDateTime.date,
+        time: parsedDateTime.time,
         configuration,
       });
 
@@ -332,9 +468,10 @@ export const WIDGETS = {
   },
 };
 
+// Alle Widgets nach Konfigurationsänderungen oder Verbindungsaufbau
+// zur Aktualisierung auffordern.
 export function refreshWidgets(gladys) {
   for (const key of Object.keys(WIDGETS)) {
     gladys.requestWidgetRefresh(key);
   }
 }
-
