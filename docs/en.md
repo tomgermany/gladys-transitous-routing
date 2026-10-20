@@ -4,17 +4,20 @@
 
 Gladys Assistent > Version 5.2
 
-External Integration Transitous Depatures
+External Integration Transitous Routing
 
 Internet Access for Your Gladys Assistant Installation
 
 ## You get:
 
 You'll receive an external integration for Galdys Assistant. 
-This integration automatically displays the next 6 public transportation departures in a clear, easy-to-read widget—from buses to trains, ferries, and cable cars.
-All of this within a configurable radius around your home.
+This integration provides you with an easy way to look up schedules for Gladys Assistant.
 
 Example:
+
+After clicking the button, a window opens with the search fields:
+
+
 
 ![Lissabon – Beispielansicht der Transitous-Integration](../test/lissabon.png)
 
