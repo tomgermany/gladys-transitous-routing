@@ -1,4 +1,4 @@
-```js
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { validateWidgetContent } from '@gladysassistant/integration-sdk';
@@ -63,4 +63,4 @@ test('refreshWidgets nudges every registered widget', () => {
     Object.keys(WIDGETS),
   );
 });
-```
+
