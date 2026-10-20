@@ -28,6 +28,16 @@ export async function refreshHouses(gladys) {
 
   gladysHouses = houses;
 
+  // Diagnose: Namen und Selector aller geladenen Häuser vergleichen.
+// Koordinaten werden absichtlich nicht protokolliert.
+logger.info(
+  '[Route-Test] Geladene Häuser:',
+  gladysHouses.map((house) => ({
+    name: house.name,
+    selector: house.selector,
+  })),
+);
+
   logger.info(
     `[Route-Test] ${gladysHouses.length} Gladys-Haus/Häuser geladen.`,
   );
