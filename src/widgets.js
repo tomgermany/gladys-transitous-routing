@@ -1,22 +1,17 @@
 
 import { logger } from '@gladysassistant/integration-sdk';
+import { getRoute } from './transitous.js';
 
 export const TRANSITOUS_ROUTING_WIDGET = 'transitous_routing';
 
-// Simulierte Verbindungen getrennt nach Widget-Konfiguration speichern.
 const routeResults = new Map();
 
-// Die zuletzt erfolgreich von Gladys geladenen Häuser.
-// Die Liste wird beim Verbindungsaufbau in index.js aktualisiert.
 let gladysHouses = [];
 
-// Einen Schlüssel für die jeweilige Widget-Konfiguration erzeugen.
 function getWidgetKey(settings = {}) {
   return JSON.stringify(settings);
 }
 
-// Häuser aus Gladys laden und im Speicher ablegen.
-// Bei einem Fehler bleibt die bisherige Liste erhalten.
 export async function refreshHouses(gladys) {
   const houses = await gladys.getHouses();
 
@@ -27,12 +22,10 @@ export async function refreshHouses(gladys) {
   gladysHouses = houses;
 
   logger.info(
-    `[Route-Test] ${gladysHouses.length} Gladys-Haus/Häuser geladen.`,
+    `[Transitous] ${gladysHouses.length} Gladys-Haus/Häuser geladen.`,
   );
 }
 
-// Das konfigurierte Haus ermitteln.
-// Falls es nicht mehr existiert, wird das erste verfügbare Haus verwendet.
 function resolveHouse(settings = {}) {
   if (settings.house) {
     const configuredHouse = gladysHouses.find(
@@ -44,7 +37,7 @@ function resolveHouse(settings = {}) {
     }
 
     logger.info(
-      '[Route-Test] Konfiguriertes Haus nicht gefunden; ' +
+      '[Transitous] Konfiguriertes Haus nicht gefunden; ' +
         'verwende ein verfügbares Haus als Standard.',
     );
   }
@@ -52,7 +45,6 @@ function resolveHouse(settings = {}) {
   return gladysHouses[0] ?? null;
 }
 
-// Prüfen, ob ein Koordinatenwert vorhanden und numerisch ist.
 function hasCoordinate(value) {
   return (
     value !== null &&
@@ -62,8 +54,6 @@ function hasCoordinate(value) {
   );
 }
 
-// Hausdaten und manuelle Koordinaten zusammenführen.
-// Vorhandene Hauskoordinaten haben Vorrang.
 function getConfiguration(settings = {}) {
   const selectedHouse = resolveHouse(settings);
 
@@ -78,10 +68,9 @@ function getConfiguration(settings = {}) {
     ? houseLongitude
     : settings.longitude;
 
-  // Keine konkreten Koordinaten in die Logs schreiben.
   if (selectedHouse) {
     logger.info(
-      `[Route-Test] Konfiguriertes Haus: "${selectedHouse.name}". ` +
+      `[Transitous] Konfiguriertes Haus: "${selectedHouse.name}". ` +
         `Breitengrad vorhanden: ${hasCoordinate(houseLatitude)}; ` +
         `Längengrad vorhanden: ${hasCoordinate(houseLongitude)}.`,
     );
@@ -95,7 +84,6 @@ function getConfiguration(settings = {}) {
   };
 }
 
-// Ein Datum im Format TT.MM.JJJJ prüfen.
 function isValidDate(value) {
   if (!/^\d{2}\.\d{2}\.\d{4}$/.test(value)) {
     return false;
@@ -107,7 +95,6 @@ function isValidDate(value) {
     return false;
   }
 
-  // Monatslängen einschließlich Schaltjahren bestimmen.
   const isLeapYear =
     year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
 
@@ -129,7 +116,6 @@ function isValidDate(value) {
   return day <= daysPerMonth[month - 1];
 }
 
-// Eine Uhrzeit im Format HH:mm prüfen.
 function isValidTime(value) {
   if (!/^\d{2}:\d{2}$/.test(value)) {
     return false;
@@ -140,48 +126,6 @@ function isValidTime(value) {
   return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
 }
 
-// Drei simulierte Verbindungen für den Funktionstest.
-// Eine echte Transitous-Abfrage folgt später.
-function getRoute({ start, destination, date, time, configuration }) {
-  const configText =
-    `Gladys-Zuhause: ${configuration.house}\n` +
-    `Breitengrad: ${configuration.latitude}\n` +
-    `Längengrad: ${configuration.longitude}\n` +
-    `Transitous-Kennzeichner: ${configuration.contact}\n`;
-
-  return [
-    {
-      title: 'Testverbindung 1',
-      subtitle: 'Abfahrt 08:15 · Ankunft 08:42',
-      description:
-        `Start: ${start}\nZiel: ${destination}\n` +
-        `Datum: ${date}\nUhrzeit: ${time}\n\n` +
-        configText +
-        '\nSimulierte Verbindung ohne Umstieg.',
-    },
-    {
-      title: 'Testverbindung 2',
-      subtitle: 'Abfahrt 08:20 · Ankunft 08:55',
-      description:
-        `Start: ${start}\nZiel: ${destination}\n` +
-        `Datum: ${date}\nUhrzeit: ${time}\n\n` +
-        configText +
-        '\nSimulierte Verbindung mit einem Umstieg.',
-    },
-    {
-      title: 'Testverbindung 3',
-      subtitle: 'Abfahrt 08:30 · Ankunft 09:05',
-      description:
-        `Start: ${start}\nZiel: ${destination}\n` +
-        `Datum: ${date}\nUhrzeit: ${time}\n\n` +
-        configText +
-        '\nDritte simulierte Verbindung.',
-    },
-  ];
-}
-
-// Vier Formularfelder: Start, Ziel, Datum und Uhrzeit.
-// Der Start wird aus dem konfigurierten Haus vorbelegt.
 function createRouteFields(settings = {}) {
   const selectedHouse = resolveHouse(settings);
 
@@ -238,7 +182,6 @@ function createRouteFields(settings = {}) {
   ];
 }
 
-// Ein einzelner Button öffnet das Vier-Felder-Formular.
 function createRouteButton(settings = {}) {
   return {
     type: 'button',
@@ -259,7 +202,6 @@ function createRouteButton(settings = {}) {
 export const WIDGETS = {
   [TRANSITOUS_ROUTING_WIDGET]: {
     async get(gladys, { settings = {} } = {}) {
-      // Bereits erzeugte Verbindungen weiterhin anzeigen.
       const savedRoutes = routeResults.get(getWidgetKey(settings));
       const components = [];
 
@@ -271,7 +213,6 @@ export const WIDGETS = {
         });
       }
 
-      // Keine Haus-Buttons mehr: nur ein Startbutton.
       components.push(createRouteButton(settings));
 
       return {
@@ -280,15 +221,11 @@ export const WIDGETS = {
       };
     },
 
-    async action(
-      gladys,
-      { actionKey, settings = {}, values } = {},
-    ) {
+    async action(gladys, { actionKey, settings = {}, values } = {}) {
       if (actionKey !== 'get_route') {
         return;
       }
 
-      // Alle vier Formularfelder prüfen.
       const requiredFields = ['start', 'destination', 'date', 'time'];
 
       const missingFields = requiredFields.filter((key) => {
@@ -310,7 +247,6 @@ export const WIDGETS = {
       const date = values.date.trim();
       const time = values.time.trim();
 
-      // Datum und Uhrzeit unabhängig voneinander validieren.
       if (!isValidDate(date) || !isValidTime(time)) {
         return {
           de:
@@ -324,33 +260,59 @@ export const WIDGETS = {
         };
       }
 
-      // Das in der Konfiguration ausgewählte Haus verwenden.
       const configuration = getConfiguration(settings);
 
-      const routes = getRoute({
-        start,
-        destination,
-        date,
-        time,
-        configuration,
-      });
+      let routes;
+
+      try {
+        routes = await getRoute({
+          start,
+          destination,
+          date,
+          time,
+          configuration,
+        });
+      } catch (err) {
+        logger.error('[Transitous] Routensuche fehlgeschlagen.', err);
+
+        return {
+          de:
+            'Die Routensuche ist fehlgeschlagen. Bitte Ortsnamen prüfen ' +
+            'und es später erneut versuchen.',
+          en:
+            'Route search failed. Please check the place names and try again later.',
+          fr:
+            'La recherche a échoué. Vérifiez les lieux et réessayez plus tard.',
+        };
+      }
+
+      if (routes.length === 0) {
+        routeResults.delete(getWidgetKey(settings));
+
+        logger.info('[Transitous] Keine Verbindungen gefunden.');
+
+        return {
+          de: 'Für diese Angaben wurden keine Verbindungen gefunden.',
+          en: 'No connections were found for these details.',
+          fr: 'Aucun trajet trouvé pour ces paramètres.',
+        };
+      }
 
       routeResults.set(getWidgetKey(settings), routes);
 
       logger.info(
-        `[Route-Test] ${routes.length} simulierte Verbindungen erzeugt.`,
+        `[Transitous] ${routes.length} echte Verbindungen geladen.`,
       );
 
       return {
-        de: 'Drei Testverbindungen wurden erzeugt.',
-        en: 'Three test connections were generated.',
-        fr: 'Trois trajets de test ont été générés.',
+        de: `${routes.length} Transitous-Verbindungen gefunden.`,
+        en: `${routes.length} Transitous connections found.`,
+        fr: `${routes.length} trajets Transitous trouvés.`,
       };
     },
   },
 };
 
-// Widgets nach Konfigurationsänderungen oder Verbindungsaufbau aktualisieren.
 export function refreshWidgets(gladys) {
   for (const key of Object.keys(WIDGETS)) {
     gladys.requestWidgetRefresh(key);
