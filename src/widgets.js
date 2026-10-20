@@ -3,22 +3,20 @@ import { logger } from '@gladysassistant/integration-sdk';
 
 export const TRANSITOUS_ROUTING_WIDGET = 'transitous_routing';
 
-// Die simulierten Routen bleiben je Widget-Konfiguration gespeichert.
+// Simulierte Verbindungen getrennt nach Widget-Konfiguration speichern.
 const routeResults = new Map();
 
 // Die zuletzt erfolgreich von Gladys geladenen Häuser.
+// Die Liste wird beim Verbindungsaufbau in index.js aktualisiert.
 let gladysHouses = [];
 
-// Vorübergehende Auswahl des Hauses, getrennt nach Widget-Konfiguration.
-// Diese Auswahl verändert NICHT die gespeicherte Gladys-Konfiguration.
-const selectedHouseBySettings = new Map();
-
-// Einen stabilen Schlüssel für eine Widget-Konfiguration erzeugen.
+// Einen Schlüssel für die jeweilige Widget-Konfiguration erzeugen.
 function getWidgetKey(settings = {}) {
   return JSON.stringify(settings);
 }
 
-// Häuser beim Verbindungsaufbau laden.
+// Häuser aus Gladys laden und im Speicher ablegen.
+// Bei einem Fehler bleibt die bisherige Liste erhalten.
 export async function refreshHouses(gladys) {
   const houses = await gladys.getHouses();
 
@@ -28,81 +26,33 @@ export async function refreshHouses(gladys) {
 
   gladysHouses = houses;
 
-  // Diagnose: Namen und Selector aller geladenen Häuser vergleichen.
-// Koordinaten werden absichtlich nicht protokolliert.
-logger.info(
-  '[Route-Test] Geladene Häuser:',
-  gladysHouses.map((house) => ({
-    name: house.name,
-    selector: house.selector,
-  })),
-);
-
   logger.info(
     `[Route-Test] ${gladysHouses.length} Gladys-Haus/Häuser geladen.`,
   );
 }
 
-// Ein Haus anhand seines Gladys-Selectors finden.
-function findHouse(selector) {
-  return gladysHouses.find((house) => house.selector === selector) ?? null;
-}
-
-// Das konfigurierte Haus bevorzugen, sonst das erste verfügbare Haus.
-function resolveDefaultHouse(settings = {}) {
+// Das konfigurierte Haus ermitteln.
+// Falls es nicht mehr existiert, wird das erste verfügbare Haus verwendet.
+function resolveHouse(settings = {}) {
   if (settings.house) {
-    const configuredHouse = findHouse(settings.house);
+    const configuredHouse = gladysHouses.find(
+      (house) => house.selector === settings.house,
+    );
 
     if (configuredHouse) {
       return configuredHouse;
     }
+
+    logger.info(
+      '[Route-Test] Konfiguriertes Haus nicht gefunden; ' +
+        'verwende ein verfügbares Haus als Standard.',
+    );
   }
 
   return gladysHouses[0] ?? null;
 }
 
-// Das aktuell ausgewählte Haus ermitteln.
-// Bei einer noch nicht erfolgten Auswahl gilt das konfigurierte Haus
-// oder ersatzweise das erste verfügbare Haus als Standard.
-function getSelectedHouse(settings = {}) {
-  const widgetKey = getWidgetKey(settings);
-  const savedSelector = selectedHouseBySettings.get(widgetKey);
-
-  if (savedSelector) {
-    const savedHouse = findHouse(savedSelector);
-
-    if (savedHouse) {
-      return savedHouse;
-    }
-  }
-
-  const defaultHouse = resolveDefaultHouse(settings);
-
-  if (defaultHouse) {
-    selectedHouseBySettings.set(widgetKey, defaultHouse.selector);
-  }
-
-  return defaultHouse;
-}
-
-// Bei mehreren Häusern höchstens drei Haus-Buttons anzeigen.
-// Das ausgewählte Haus steht an erster Stelle.
-function getSelectableHouses(settings = {}) {
-  const selectedHouse = getSelectedHouse(settings);
-
-  const orderedHouses = selectedHouse
-    ? [
-        selectedHouse,
-        ...gladysHouses.filter(
-          (house) => house.selector !== selectedHouse.selector,
-        ),
-      ]
-    : gladysHouses;
-
-  return orderedHouses.slice(0, 3);
-}
-
-// Prüfen, ob ein Wert eine gültige numerische Koordinate ist.
+// Prüfen, ob ein Koordinatenwert vorhanden und numerisch ist.
 function hasCoordinate(value) {
   return (
     value !== null &&
@@ -112,13 +62,10 @@ function hasCoordinate(value) {
   );
 }
 
-// Hauskoordinaten und manuelle Koordinaten zusammenführen.
+// Hausdaten und manuelle Koordinaten zusammenführen.
 // Vorhandene Hauskoordinaten haben Vorrang.
-function getConfiguration(settings = {}, houseSelector = undefined) {
-  const selectedHouse =
-    houseSelector !== undefined
-      ? findHouse(houseSelector)
-      : resolveDefaultHouse(settings);
+function getConfiguration(settings = {}) {
+  const selectedHouse = resolveHouse(settings);
 
   const houseLatitude = selectedHouse?.latitude;
   const houseLongitude = selectedHouse?.longitude;
@@ -134,7 +81,7 @@ function getConfiguration(settings = {}, houseSelector = undefined) {
   // Keine konkreten Koordinaten in die Logs schreiben.
   if (selectedHouse) {
     logger.info(
-      `[Route-Test] Haus erkannt: "${selectedHouse.name}". ` +
+      `[Route-Test] Konfiguriertes Haus: "${selectedHouse.name}". ` +
         `Breitengrad vorhanden: ${hasCoordinate(houseLatitude)}; ` +
         `Längengrad vorhanden: ${hasCoordinate(houseLongitude)}.`,
     );
@@ -160,7 +107,7 @@ function isValidDate(value) {
     return false;
   }
 
-  // Monatslängen korrekt bestimmen, auch für Jahre unter 100.
+  // Monatslängen einschließlich Schaltjahren bestimmen.
   const isLeapYear =
     year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
 
@@ -233,10 +180,10 @@ function getRoute({ start, destination, date, time, configuration }) {
   ];
 }
 
-// Die vier erlaubten Formularfelder.
-// Datum und Uhrzeit bleiben getrennt und sind einzeln editierbar.
+// Vier Formularfelder: Start, Ziel, Datum und Uhrzeit.
+// Der Start wird aus dem konfigurierten Haus vorbelegt.
 function createRouteFields(settings = {}) {
-  const selectedHouse = getSelectedHouse(settings);
+  const selectedHouse = resolveHouse(settings);
 
   const defaultDate = new Date().toLocaleDateString('de-DE', {
     day: '2-digit',
@@ -291,31 +238,7 @@ function createRouteFields(settings = {}) {
   ];
 }
 
-// Haus-Buttons erzeugen.
-// Der aktuell ausgewählte Button erhält den primären Stil.
-function createHouseButtons(settings = {}) {
-  const selectedHouse = getSelectedHouse(settings);
-  const widgetKey = getWidgetKey(settings);
-
-  return getSelectableHouses(settings).map((house) => {
-    const isSelected = house.selector === selectedHouse?.selector;
-
-    return {
-      type: 'button',
-      label: house.name.slice(0, 24),
-      icon: 'home',
-      style: isSelected ? 'primary' : 'secondary',
-      action: {
-        key: 'select_house',
-        params: {
-          houseSelector: house.selector,
-        },
-      },
-    };
-  });
-}
-
-// Der separate Startbutton öffnet das Vier-Felder-Formular.
+// Ein einzelner Button öffnet das Vier-Felder-Formular.
 function createRouteButton(settings = {}) {
   return {
     type: 'button',
@@ -336,11 +259,10 @@ function createRouteButton(settings = {}) {
 export const WIDGETS = {
   [TRANSITOUS_ROUTING_WIDGET]: {
     async get(gladys, { settings = {} } = {}) {
-      const widgetKey = getWidgetKey(settings);
-      const savedRoutes = routeResults.get(widgetKey);
+      // Bereits erzeugte Verbindungen weiterhin anzeigen.
+      const savedRoutes = routeResults.get(getWidgetKey(settings));
       const components = [];
 
-      // Bereits erzeugte Verbindungen weiterhin anzeigen.
       if (savedRoutes) {
         components.push({
           type: 'card-list',
@@ -349,8 +271,7 @@ export const WIDGETS = {
         });
       }
 
-      // Bis zu drei Haus-Buttons und ein separater Startbutton.
-      components.push(...createHouseButtons(settings));
+      // Keine Haus-Buttons mehr: nur ein Startbutton.
       components.push(createRouteButton(settings));
 
       return {
@@ -361,37 +282,8 @@ export const WIDGETS = {
 
     async action(
       gladys,
-      { actionKey, params = {}, settings = {}, values } = {},
+      { actionKey, settings = {}, values } = {},
     ) {
-      const widgetKey = getWidgetKey(settings);
-
-      // Einen Haus-Button gedrückt: Auswahl speichern und Widget erneuern.
-      if (actionKey === 'select_house') {
-        const house = findHouse(params.houseSelector);
-
-        if (!house) {
-          return {
-            de: 'Dieses Haus ist nicht mehr verfügbar.',
-            en: 'This house is no longer available.',
-            fr: 'Ce domicile n’est plus disponible.',
-          };
-        }
-
-        selectedHouseBySettings.set(widgetKey, house.selector);
-
-        logger.info(
-          `[Route-Test] Haus für die nächste Anfrage ausgewählt: "${house.name}".`,
-        );
-
-        // Die SDK-Aktion verwirft den Widget-Cache nach der Rückgabe.
-        // Dadurch wird der ausgewählte Button beim nächsten Abruf markiert.
-        return {
-          de: `Haus ausgewählt: ${house.name}`,
-          en: `House selected: ${house.name}`,
-          fr: `Domicile sélectionné : ${house.name}`,
-        };
-      }
-
       if (actionKey !== 'get_route') {
         return;
       }
@@ -402,10 +294,7 @@ export const WIDGETS = {
       const missingFields = requiredFields.filter((key) => {
         const value = values?.[key];
 
-        return (
-          typeof value !== 'string' ||
-          value.trim() === ''
-        );
+        return typeof value !== 'string' || value.trim() === '';
       });
 
       if (missingFields.length > 0) {
@@ -435,13 +324,8 @@ export const WIDGETS = {
         };
       }
 
-      // Die zuvor gewählte Hausauswahl für diese Anfrage verwenden.
-      const selectedHouse = getSelectedHouse(settings);
-
-      const configuration = getConfiguration(
-        settings,
-        selectedHouse?.selector,
-      );
+      // Das in der Konfiguration ausgewählte Haus verwenden.
+      const configuration = getConfiguration(settings);
 
       const routes = getRoute({
         start,
@@ -451,7 +335,7 @@ export const WIDGETS = {
         configuration,
       });
 
-      routeResults.set(widgetKey, routes);
+      routeResults.set(getWidgetKey(settings), routes);
 
       logger.info(
         `[Route-Test] ${routes.length} simulierte Verbindungen erzeugt.`,
@@ -466,8 +350,7 @@ export const WIDGETS = {
   },
 };
 
-// Alle Widgets nach Konfigurationsänderungen oder Verbindungsaufbau
-// zur Aktualisierung auffordern.
+// Widgets nach Konfigurationsänderungen oder Verbindungsaufbau aktualisieren.
 export function refreshWidgets(gladys) {
   for (const key of Object.keys(WIDGETS)) {
     gladys.requestWidgetRefresh(key);
