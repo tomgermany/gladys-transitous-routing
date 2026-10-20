@@ -3,20 +3,17 @@ import { logger } from '@gladysassistant/integration-sdk';
 
 export const TRANSITOUS_ROUTING_WIDGET = 'transitous_routing';
 
-// Simulierte Verbindungen getrennt nach Widget-Konfiguration speichern.
+const TRANSITOUS_API = 'https://api.transitous.org';
+const REQUEST_TIMEOUT_MS = 15000;
+
 const routeResults = new Map();
 
-// Die zuletzt erfolgreich von Gladys geladenen Häuser.
-// Die Liste wird beim Verbindungsaufbau in index.js aktualisiert.
 let gladysHouses = [];
 
-// Einen Schlüssel für die jeweilige Widget-Konfiguration erzeugen.
 function getWidgetKey(settings = {}) {
   return JSON.stringify(settings);
 }
 
-// Häuser aus Gladys laden und im Speicher ablegen.
-// Bei einem Fehler bleibt die bisherige Liste erhalten.
 export async function refreshHouses(gladys) {
   const houses = await gladys.getHouses();
 
@@ -27,12 +24,10 @@ export async function refreshHouses(gladys) {
   gladysHouses = houses;
 
   logger.info(
-    `[Route-Test] ${gladysHouses.length} Gladys-Haus/Häuser geladen.`,
+    `[Transitous] ${gladysHouses.length} Gladys-Haus/Häuser geladen.`,
   );
 }
 
-// Das konfigurierte Haus ermitteln.
-// Falls es nicht mehr existiert, wird das erste verfügbare Haus verwendet.
 function resolveHouse(settings = {}) {
   if (settings.house) {
     const configuredHouse = gladysHouses.find(
@@ -44,7 +39,7 @@ function resolveHouse(settings = {}) {
     }
 
     logger.info(
-      '[Route-Test] Konfiguriertes Haus nicht gefunden; ' +
+      '[Transitous] Konfiguriertes Haus nicht gefunden; ' +
         'verwende ein verfügbares Haus als Standard.',
     );
   }
@@ -52,7 +47,6 @@ function resolveHouse(settings = {}) {
   return gladysHouses[0] ?? null;
 }
 
-// Prüfen, ob ein Koordinatenwert vorhanden und numerisch ist.
 function hasCoordinate(value) {
   return (
     value !== null &&
@@ -62,8 +56,6 @@ function hasCoordinate(value) {
   );
 }
 
-// Hausdaten und manuelle Koordinaten zusammenführen.
-// Vorhandene Hauskoordinaten haben Vorrang.
 function getConfiguration(settings = {}) {
   const selectedHouse = resolveHouse(settings);
 
@@ -78,10 +70,9 @@ function getConfiguration(settings = {}) {
     ? houseLongitude
     : settings.longitude;
 
-  // Keine konkreten Koordinaten in die Logs schreiben.
   if (selectedHouse) {
     logger.info(
-      `[Route-Test] Konfiguriertes Haus: "${selectedHouse.name}". ` +
+      `[Transitous] Konfiguriertes Haus: "${selectedHouse.name}". ` +
         `Breitengrad vorhanden: ${hasCoordinate(houseLatitude)}; ` +
         `Längengrad vorhanden: ${hasCoordinate(houseLongitude)}.`,
     );
@@ -95,7 +86,6 @@ function getConfiguration(settings = {}) {
   };
 }
 
-// Ein Datum im Format TT.MM.JJJJ prüfen.
 function isValidDate(value) {
   if (!/^\d{2}\.\d{2}\.\d{4}$/.test(value)) {
     return false;
@@ -107,7 +97,6 @@ function isValidDate(value) {
     return false;
   }
 
-  // Monatslängen einschließlich Schaltjahren bestimmen.
   const isLeapYear =
     year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
 
@@ -129,7 +118,6 @@ function isValidDate(value) {
   return day <= daysPerMonth[month - 1];
 }
 
-// Eine Uhrzeit im Format HH:mm prüfen.
 function isValidTime(value) {
   if (!/^\d{2}:\d{2}$/.test(value)) {
     return false;
@@ -140,48 +128,282 @@ function isValidTime(value) {
   return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
 }
 
-// Drei simulierte Verbindungen für den Funktionstest.
-// Eine echte Transitous-Abfrage folgt später.
-function getRoute({ start, destination, date, time, configuration }) {
-  const configText =
-    `Gladys-Zuhause: ${configuration.house}\n` +
-    `Breitengrad: ${configuration.latitude}\n` +
-    `Längengrad: ${configuration.longitude}\n` +
-    `Transitous-Kennzeichner: ${configuration.contact}\n`;
+// Berlin-Zeitzonenoffset für ein konkretes Datum und eine Uhrzeit bestimmen.
+function toBerlinDateTime(date, time) {
+  const [day, month, year] = date.split('.').map(Number);
+  const [hours, minutes] = time.split(':').map(Number);
 
-  return [
-    {
-      title: 'Testverbindung 1',
-      subtitle: 'Abfahrt 08:15 · Ankunft 08:42',
-      description:
-        `Start: ${start}\nZiel: ${destination}\n` +
-        `Datum: ${date}\nUhrzeit: ${time}\n\n` +
-        configText +
-        '\nSimulierte Verbindung ohne Umstieg.',
-    },
-    {
-      title: 'Testverbindung 2',
-      subtitle: 'Abfahrt 08:20 · Ankunft 08:55',
-      description:
-        `Start: ${start}\nZiel: ${destination}\n` +
-        `Datum: ${date}\nUhrzeit: ${time}\n\n` +
-        configText +
-        '\nSimulierte Verbindung mit einem Umstieg.',
-    },
-    {
-      title: 'Testverbindung 3',
-      subtitle: 'Abfahrt 08:30 · Ankunft 09:05',
-      description:
-        `Start: ${start}\nZiel: ${destination}\n` +
-        `Datum: ${date}\nUhrzeit: ${time}\n\n` +
-        configText +
-        '\nDritte simulierte Verbindung.',
-    },
-  ];
+  const localAsUtc = Date.UTC(
+    year,
+    month - 1,
+    day,
+    hours,
+    minutes,
+  );
+
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Berlin',
+    timeZoneName: 'longOffset',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+
+  // Zunächst mit UTC als Näherung den passenden Offset bestimmen.
+  const initialDate = new Date(localAsUtc);
+  const initialOffset = formatter
+    .formatToParts(initialDate)
+    .find((part) => part.type === 'timeZoneName')?.value;
+
+  if (!initialOffset || !/^GMT[+-]\d{2}:\d{2}$/.test(initialOffset)) {
+    throw new Error('Der Zeitzonenoffset für Europe/Berlin ist unbekannt.');
+  }
+
+  const offsetMatch = initialOffset.match(/GMT([+-])(\d{2}):(\d{2})/);
+  const sign = offsetMatch[1] === '+' ? 1 : -1;
+  const offsetMinutes =
+    sign * (Number(offsetMatch[2]) * 60 + Number(offsetMatch[3]));
+
+  const utcTimestamp = localAsUtc - offsetMinutes * 60 * 1000;
+  const utcDate = new Date(utcTimestamp);
+
+  const isoDate =
+    `${String(year).padStart(4, '0')}-` +
+    `${String(month).padStart(2, '0')}-` +
+    `${String(day).padStart(2, '0')}`;
+
+  const isoTime =
+    `${String(hours).padStart(2, '0')}:` +
+    `${String(minutes).padStart(2, '0')}:00`;
+
+  // Den Offset am tatsächlich berechneten Zeitpunkt erneut prüfen.
+  const actualOffset = formatter
+    .formatToParts(utcDate)
+    .find((part) => part.type === 'timeZoneName')?.value;
+
+  if (!actualOffset || !/^GMT[+-]\d{2}:\d{2}$/.test(actualOffset)) {
+    throw new Error('Die lokale Abfahrtszeit konnte nicht umgerechnet werden.');
+  }
+
+  return `${isoDate}T${isoTime}${actualOffset.slice(3)}`;
 }
 
-// Vier Formularfelder: Start, Ziel, Datum und Uhrzeit.
-// Der Start wird aus dem konfigurierten Haus vorbelegt.
+async function fetchTransitous(path, params = {}) {
+  const url = new URL(path, TRANSITOUS_API);
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null) {
+      url.searchParams.set(key, String(value));
+    }
+  }
+
+  const response = await fetch(url, {
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': 'Gladys-Transitous-Routing/1.0',
+      Referer: 'https://github.com/tomgermany/gladys-transitous-routing',
+    },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Transitous antwortet mit HTTP ${response.status}.`);
+  }
+
+  return response.json();
+}
+
+// Die Geocoding-API liefert passende Orte und gegebenenfalls Haltestellen.
+async function geocodePlace(query) {
+  const data = await fetchTransitous('/api/v1/geocode', {
+    text: query,
+    language: 'de',
+  });
+
+  const places = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.places)
+      ? data.places
+      : Array.isArray(data?.results)
+        ? data.results
+        : [];
+
+  const place = places.find(
+    (item) =>
+      hasCoordinate(item.lat) &&
+      hasCoordinate(item.lon),
+  );
+
+  if (!place) {
+    throw new Error(`Der Ort „${query}“ wurde nicht gefunden.`);
+  }
+
+  return {
+    lat: Number(place.lat),
+    lon: Number(place.lon),
+    name: place.name ?? query,
+  };
+}
+
+function formatRouteTime(value) {
+  if (value === undefined || value === null) {
+    return 'unbekannt';
+  }
+
+  let date;
+
+  if (typeof value === 'number') {
+    date = new Date(value);
+  } else if (/^\d+$/.test(String(value))) {
+    date = new Date(Number(value));
+  } else {
+    date = new Date(value);
+  }
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return new Intl.DateTimeFormat('de-DE', {
+    timeZone: 'Europe/Berlin',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
+function formatDuration(start, end) {
+  const startTime = new Date(start).getTime();
+  const endTime = new Date(end).getTime();
+
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) {
+    return '';
+  }
+
+  const minutes = Math.round((endTime - startTime) / 60000);
+
+  if (minutes < 0) {
+    return '';
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+
+  if (hours > 0) {
+    return `${hours} Std. ${remainingMinutes} Min.`;
+  }
+
+  return `${remainingMinutes} Min.`;
+}
+
+function getItineraries(data) {
+  if (Array.isArray(data?.itineraries)) {
+    return data.itineraries;
+  }
+
+  if (Array.isArray(data?.connections)) {
+    return data.connections;
+  }
+
+  if (Array.isArray(data?.journeys)) {
+    return data.journeys;
+  }
+
+  return [];
+}
+
+function formatLeg(leg) {
+  const from = leg.from?.name ?? leg.from?.id ?? 'Start';
+  const to = leg.to?.name ?? leg.to?.id ?? 'Ziel';
+  const mode = leg.mode ?? 'Verbindung';
+  const line =
+    leg.routeShortName ??
+    leg.displayName ??
+    leg.trip?.route?.shortName;
+
+  return (
+    `${formatRouteTime(leg.startTime)} – ` +
+    `${formatRouteTime(leg.endTime)}: ` +
+    `${mode}${line ? ` ${line}` : ''}\n` +
+    `${from} → ${to}`
+  );
+}
+
+async function getRoute({
+  start,
+  destination,
+  date,
+  time,
+  configuration,
+}) {
+  let fromPlace;
+
+  const startMatchesHouse =
+    configuration.house !== '(nicht gesetzt)' &&
+    start.localeCompare(configuration.house, 'de', {
+      sensitivity: 'base',
+    }) === 0;
+
+  if (
+    startMatchesHouse &&
+    hasCoordinate(configuration.latitude) &&
+    hasCoordinate(configuration.longitude)
+  ) {
+    fromPlace = {
+      lat: Number(configuration.latitude),
+      lon: Number(configuration.longitude),
+      name: configuration.house,
+    };
+  } else {
+    fromPlace = await geocodePlace(start);
+  }
+
+  const toPlace = await geocodePlace(destination);
+
+  const data = await fetchTransitous('/api/v6/plan', {
+    fromPlace: `${fromPlace.lat},${fromPlace.lon}`,
+    toPlace: `${toPlace.lat},${toPlace.lon}`,
+    time: toBerlinDateTime(date, time),
+    arriveBy: false,
+    numItineraries: 5,
+    timetableView: true,
+    language: 'de',
+  });
+
+  const itineraries = getItineraries(data);
+
+  return itineraries.slice(0, 5).map((itinerary, index) => {
+    const legs = itinerary.legs ?? [];
+    const departure = itinerary.startTime ?? legs[0]?.startTime;
+    const arrival = itinerary.endTime ?? legs.at(-1)?.endTime;
+
+    const transitLegs = legs.filter((leg) => {
+      const mode = String(leg.mode ?? '').toUpperCase();
+
+      return mode && !['WALK', 'FOOT', 'TRANSFER'].includes(mode);
+    });
+
+    const transfers = Math.max(0, transitLegs.length - 1);
+    const duration = formatDuration(departure, arrival);
+
+    const legDetails = legs.map(formatLeg);
+
+    return {
+      title: `Verbindung ${index + 1}`,
+      subtitle:
+        `${formatRouteTime(departure)} – ${formatRouteTime(arrival)}` +
+        `${duration ? ` · ${duration}` : ''} · ` +
+        `${transfers} Umstieg${transfers === 1 ? '' : 'e'}`,
+      description:
+        `Start: ${start}\nZiel: ${destination}\n` +
+        `Datum: ${date}\nUhrzeit: ${time}\n\n` +
+        (legDetails.length
+          ? legDetails.join('\n\n')
+          : 'Für diese Verbindung liegen keine Detailangaben vor.') +
+        '\n\nFahrplandaten: Transitous',
+    };
+  });
+}
+
 function createRouteFields(settings = {}) {
   const selectedHouse = resolveHouse(settings);
 
@@ -238,7 +460,6 @@ function createRouteFields(settings = {}) {
   ];
 }
 
-// Ein einzelner Button öffnet das Vier-Felder-Formular.
 function createRouteButton(settings = {}) {
   return {
     type: 'button',
@@ -259,7 +480,6 @@ function createRouteButton(settings = {}) {
 export const WIDGETS = {
   [TRANSITOUS_ROUTING_WIDGET]: {
     async get(gladys, { settings = {} } = {}) {
-      // Bereits erzeugte Verbindungen weiterhin anzeigen.
       const savedRoutes = routeResults.get(getWidgetKey(settings));
       const components = [];
 
@@ -271,7 +491,6 @@ export const WIDGETS = {
         });
       }
 
-      // Keine Haus-Buttons mehr: nur ein Startbutton.
       components.push(createRouteButton(settings));
 
       return {
@@ -280,15 +499,11 @@ export const WIDGETS = {
       };
     },
 
-    async action(
-      gladys,
-      { actionKey, settings = {}, values } = {},
-    ) {
+    async action(gladys, { actionKey, settings = {}, values } = {}) {
       if (actionKey !== 'get_route') {
         return;
       }
 
-      // Alle vier Formularfelder prüfen.
       const requiredFields = ['start', 'destination', 'date', 'time'];
 
       const missingFields = requiredFields.filter((key) => {
@@ -310,7 +525,6 @@ export const WIDGETS = {
       const date = values.date.trim();
       const time = values.time.trim();
 
-      // Datum und Uhrzeit unabhängig voneinander validieren.
       if (!isValidDate(date) || !isValidTime(time)) {
         return {
           de:
@@ -324,33 +538,59 @@ export const WIDGETS = {
         };
       }
 
-      // Das in der Konfiguration ausgewählte Haus verwenden.
       const configuration = getConfiguration(settings);
 
-      const routes = getRoute({
-        start,
-        destination,
-        date,
-        time,
-        configuration,
-      });
+      let routes;
+
+      try {
+        routes = await getRoute({
+          start,
+          destination,
+          date,
+          time,
+          configuration,
+        });
+      } catch (err) {
+        logger.error('[Transitous] Routensuche fehlgeschlagen.', err);
+
+        return {
+          de:
+            'Die Routensuche ist fehlgeschlagen. Bitte Ortsnamen prüfen ' +
+            'und es später erneut versuchen.',
+          en:
+            'Route search failed. Please check the place names and try again later.',
+          fr:
+            'La recherche a échoué. Vérifiez les lieux et réessayez plus tard.',
+        };
+      }
+
+      if (routes.length === 0) {
+        routeResults.delete(getWidgetKey(settings));
+
+        logger.info('[Transitous] Keine Verbindungen gefunden.');
+
+        return {
+          de: 'Für diese Angaben wurden keine Verbindungen gefunden.',
+          en: 'No connections were found for these details.',
+          fr: 'Aucun trajet trouvé pour ces paramètres.',
+        };
+      }
 
       routeResults.set(getWidgetKey(settings), routes);
 
       logger.info(
-        `[Route-Test] ${routes.length} simulierte Verbindungen erzeugt.`,
+        `[Transitous] ${routes.length} echte Verbindungen geladen.`,
       );
 
       return {
-        de: 'Drei Testverbindungen wurden erzeugt.',
-        en: 'Three test connections were generated.',
-        fr: 'Trois trajets de test ont été générés.',
+        de: `${routes.length} Transitous-Verbindungen gefunden.`,
+        en: `${routes.length} Transitous connections found.`,
+        fr: `${routes.length} trajets Transitous trouvés.`,
       };
     },
   },
 };
 
-// Widgets nach Konfigurationsänderungen oder Verbindungsaufbau aktualisieren.
 export function refreshWidgets(gladys) {
   for (const key of Object.keys(WIDGETS)) {
     gladys.requestWidgetRefresh(key);
