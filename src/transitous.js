@@ -10,6 +10,23 @@ const HEADERS = {
   Referer: 'https://github.com/tomgermany/gladys-transitous-routing',
 };
 
+/**
+ * Gemeinsame Farbzuordnung aus gladys-transitous-departures.
+ *
+ * Ausschließlich die vom Gladys-SDK unterstützten semantischen
+ * Farbnamen verwenden.
+ */
+const CATEGORY_COLORS = {
+  BUS: 'success',
+  REGIONAL: 'info',
+  SPECIAL: 'neutral',
+  URBAN: 'warning',
+  RAIL: 'primary',
+};
+
+/**
+ * Prüft, ob ein Wert als Koordinate verwendet werden kann.
+ */
 function hasCoordinate(value) {
   return (
     value !== null &&
@@ -19,6 +36,121 @@ function hasCoordinate(value) {
   );
 }
 
+/**
+ * Ordnet Verkehrsmittel derselben Kategorie wie im Parallelprojekt zu.
+ */
+function modeCategory(mode) {
+  const normalized = String(mode ?? '').toUpperCase();
+
+  if (normalized === 'BUS') return 'BUS';
+
+  if (
+    [
+      'RAIL',
+      'REGIONAL_RAIL',
+      'REGIONAL_FAST_RAIL',
+      'SUBURBAN',
+    ].includes(normalized)
+  ) {
+    return 'REGIONAL';
+  }
+
+  if (
+    ['ODM', 'FERRY', 'AIRPLANE', 'FUNICULAR'].includes(normalized)
+  ) {
+    return 'SPECIAL';
+  }
+
+  if (['TRAM', 'SUBWAY'].includes(normalized)) {
+    return 'URBAN';
+  }
+
+  if (
+    [
+      'HIGHSPEED_RAIL',
+      'HIGH_SPEED_RAIL',
+      'LONG_DISTANCE',
+      'NIGHT_RAIL',
+    ].includes(normalized)
+  ) {
+    return 'RAIL';
+  }
+
+  return null;
+}
+
+/**
+ * Liefert eine verständliche Bezeichnung, falls keine Liniennummer
+ * vorhanden ist.
+ */
+function displayedMode(mode) {
+  const normalized = String(mode ?? '').toUpperCase();
+
+  const labels = {
+    BUS: 'BUS',
+    ODM: 'BUS',
+    FERRY: 'FÄHRE',
+    AIRPLANE: 'FLUG',
+    FUNICULAR: 'STANDSEILBAHN',
+    TRAM: 'TRAM',
+    SUBWAY: 'U-BAHN',
+    SUBURBAN: 'S-BAHN',
+    RAIL: 'BAHN',
+    REGIONAL_RAIL: 'BAHN',
+    REGIONAL_FAST_RAIL: 'BAHN',
+    HIGHSPEED_RAIL: 'FERN',
+    HIGH_SPEED_RAIL: 'FERN',
+    LONG_DISTANCE: 'FERN',
+    NIGHT_RAIL: 'FERN',
+  };
+
+  return labels[normalized] ?? normalized ?? 'VERKEHR';
+}
+
+/**
+ * Ermittelt das einzige Badge für eine Verbindung.
+ *
+ * Es zählt das erste tatsächlich genutzte Verkehrsmittel.
+ * Fußwege und reine Umstiegsabschnitte werden übersprungen.
+ *
+ * Die Farbe entspricht der zentralen Zuordnung des Parallelprojekts.
+ * Wenn keine Liniennummer vorhanden ist, wird eine Verkehrsbezeichnung
+ * verwendet. Auch dann bleibt es bei genau einem Badge pro Verbindung.
+ */
+function getLineBadge(legs) {
+  const firstTransitLeg = legs.find((leg) => {
+    const mode = String(leg.mode ?? '').toUpperCase();
+
+    return mode && !['WALK', 'FOOT', 'TRANSFER'].includes(mode);
+  });
+
+  if (!firstTransitLeg) {
+    return null;
+  }
+
+  const mode = String(firstTransitLeg.mode ?? '').toUpperCase();
+
+  const line =
+    firstTransitLeg.routeShortName ??
+    firstTransitLeg.trip?.route?.shortName ??
+    firstTransitLeg.route?.shortName;
+
+  const text = line
+    ? String(line).trim()
+    : displayedMode(mode);
+
+  const category = modeCategory(mode);
+
+  return {
+    text: text || displayedMode(mode),
+    color: CATEGORY_COLORS[category] ?? 'primary',
+  };
+}
+
+/**
+ * Wandelt eine lokale Abfahrtszeit in Europe/Berlin in einen
+ * eindeutigen ISO-Zeitstempel mit Zeitzonenoffset um.
+ */
 function toBerlinDateTime(date, time) {
   const [day, month, year] = date.split('.').map(Number);
   const [hours, minutes] = time.split(':').map(Number);
@@ -39,7 +171,9 @@ function toBerlinDateTime(date, time) {
     .find((part) => part.type === 'timeZoneName')?.value;
 
   if (!initialOffset || !/^GMT[+-]\d{2}:\d{2}$/.test(initialOffset)) {
-    throw new Error('Der Zeitzonenoffset für Europe/Berlin ist unbekannt.');
+    throw new Error(
+      'Der Zeitzonenoffset für Europe/Berlin ist unbekannt.',
+    );
   }
 
   const offsetMatch = initialOffset.match(/GMT([+-])(\d{2}):(\d{2})/);
@@ -63,12 +197,17 @@ function toBerlinDateTime(date, time) {
     .find((part) => part.type === 'timeZoneName')?.value;
 
   if (!actualOffset || !/^GMT[+-]\d{2}:\d{2}$/.test(actualOffset)) {
-    throw new Error('Die lokale Abfahrtszeit konnte nicht umgerechnet werden.');
+    throw new Error(
+      'Die lokale Abfahrtszeit konnte nicht umgerechnet werden.',
+    );
   }
 
   return `${isoDate}T${isoTime}${actualOffset.slice(3)}`;
 }
 
+/**
+ * Ruft eine MOTIS-Operation über die Transitous-API auf.
+ */
 async function callMotis(operation, query) {
   return operation({
     throwOnError: true,
@@ -79,12 +218,16 @@ async function callMotis(operation, query) {
   });
 }
 
+/**
+ * Unterstützt direkte Antworten und Antworten mit data-Eigenschaft.
+ */
 function getResponseData(response) {
-  // Die Funktion unterstützt sowohl direkte Daten als auch die üblichen
-  // { data: ... }-Antworten generierter HTTP-Clients.
   return response?.data ?? response;
 }
 
+/**
+ * Ermittelt Koordinaten für einen Ortsnamen über die Geocoding-API.
+ */
 async function geocodePlace(query) {
   const response = await callMotis(geocode, {
     text: query,
@@ -118,6 +261,9 @@ async function geocodePlace(query) {
   };
 }
 
+/**
+ * Formatiert einen Zeitstempel als Uhrzeit in deutscher Ortszeit.
+ */
 function formatRouteTime(value) {
   if (value === undefined || value === null) {
     return 'unbekannt';
@@ -144,6 +290,9 @@ function formatRouteTime(value) {
   }).format(date);
 }
 
+/**
+ * Berechnet die Gesamtdauer einer Verbindung.
+ */
 function formatDuration(start, end) {
   const startTime = new Date(start).getTime();
   const endTime = new Date(end).getTime();
@@ -168,6 +317,9 @@ function formatDuration(start, end) {
   return `${remainingMinutes} Min.`;
 }
 
+/**
+ * Unterstützt die unterschiedlichen Bezeichnungen der MOTIS-Antwort.
+ */
 function getItineraries(data) {
   if (Array.isArray(data?.itineraries)) {
     return data.itineraries;
@@ -184,10 +336,14 @@ function getItineraries(data) {
   return [];
 }
 
+/**
+ * Formatiert einen einzelnen Streckenabschnitt für die Routendetails.
+ */
 function formatLeg(leg) {
   const from = leg.from?.name ?? leg.from?.id ?? 'Start';
   const to = leg.to?.name ?? leg.to?.id ?? 'Ziel';
   const mode = leg.mode ?? 'Verbindung';
+
   const line =
     leg.routeShortName ??
     leg.displayName ??
@@ -201,6 +357,10 @@ function formatLeg(leg) {
   );
 }
 
+/**
+ * Sucht echte Verbindungen über Transitous und liefert Gladys-Cardlist-
+ * Einträge einschließlich des einheitlich gestalteten Linien-Badges.
+ */
 export async function getRoute({
   start,
   destination,
@@ -259,9 +419,11 @@ export async function getRoute({
     const transfers = Math.max(0, transitLegs.length - 1);
     const duration = formatDuration(departure, arrival);
     const legDetails = legs.map(formatLeg);
+    const badge = getLineBadge(legs);
 
     return {
       title: `Verbindung ${index + 1}`,
+      ...(badge ? { badge } : {}),
       subtitle:
         `${formatRouteTime(departure)} – ${formatRouteTime(arrival)}` +
         `${duration ? ` · ${duration}` : ''} · ` +
