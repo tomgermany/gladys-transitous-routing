@@ -6,22 +6,19 @@ export const TRANSITOUS_ROUTING_WIDGET = 'transitous_routing';
 // Ergebnisse je Widget-Konfiguration zwischenspeichern.
 const routeResults = new Map();
 
-// Neu: Hier halten wir die zuletzt von Gladys geladene Hausliste.
-// Die Daten werden später für die dynamische Hausauswahl benötigt.
+// Hausliste aus Gladys zwischenspeichern.
+// Sie wird beim Verbindungsaufbau durch index.js aktualisiert.
 let gladysHouses = [];
 
 function getWidgetKey(settings = {}) {
   return JSON.stringify(settings);
 }
 
-// Neu: Häuser aus Gladys einlesen und für die weitere Verwendung speichern.
-// Die Funktion wird von index.js beim Verbindungsaufbau aufgerufen.
+// Hausliste aus Gladys einlesen.
 export async function refreshHouses(gladys) {
   try {
     const houses = await gladys.getHouses();
 
-    // Nur eine gültige Liste übernehmen, damit wir keine ungültigen
-    // Daten als aktuelle Hausliste speichern.
     if (!Array.isArray(houses)) {
       throw new Error('getHouses() hat keine gültige Hausliste geliefert.');
     }
@@ -41,12 +38,70 @@ export async function refreshHouses(gladys) {
   }
 }
 
-// Konfigurationswerte für die späteren echten Routenabfragen.
+// Prüfen, ob ein Koordinatenwert tatsächlich vorhanden und numerisch ist.
+function hasCoordinate(value) {
+  return (
+    value !== null &&
+    value !== undefined &&
+    value !== '' &&
+    Number.isFinite(Number(value))
+  );
+}
+
+// Das in der Konfiguration ausgewählte Haus anhand seines selectors finden.
+// Falls genau ein Haus existiert und keine Auswahl gespeichert ist,
+// verwenden wir dieses eine Haus als sinnvollen Standard.
+function resolveHouse(settings = {}) {
+  if (settings.house) {
+    return (
+      gladysHouses.find((house) => house.selector === settings.house) ?? null
+    );
+  }
+
+  if (gladysHouses.length === 1) {
+    return gladysHouses[0];
+  }
+
+  return null;
+}
+
+// Konfiguration und Hausdaten für die spätere Routenabfrage zusammenführen.
+// Hauskoordinaten haben Vorrang; manuelle Koordinaten bleiben Rückfalloption.
 function getConfiguration(settings = {}) {
+  const selectedHouse = resolveHouse(settings);
+
+  const houseLatitude = selectedHouse?.latitude;
+  const houseLongitude = selectedHouse?.longitude;
+
+  const latitude = hasCoordinate(houseLatitude)
+    ? houseLatitude
+    : settings.latitude;
+
+  const longitude = hasCoordinate(houseLongitude)
+    ? houseLongitude
+    : settings.longitude;
+
+  // Datensparsame Diagnose: keine Koordinaten oder Adressen protokollieren.
+  if (selectedHouse) {
+    logger.info(
+      `[Route-Test] Haus erkannt: "${selectedHouse.name}". ` +
+        `Breitengrad vorhanden: ${hasCoordinate(houseLatitude)}; ` +
+        `Längengrad vorhanden: ${hasCoordinate(houseLongitude)}.`,
+    );
+  } else if (settings.house) {
+    logger.info(
+      '[Route-Test] Das konfigurierte Haus wurde in der geladenen Hausliste nicht gefunden.',
+    );
+  } else {
+    logger.info(
+      '[Route-Test] Kein eindeutiges Haus ausgewählt; manuelle Koordinaten bleiben verfügbar.',
+    );
+  }
+
   return {
-    house: settings.house ?? '(nicht gesetzt)',
-    latitude: settings.latitude ?? '(nicht gesetzt)',
-    longitude: settings.longitude ?? '(nicht gesetzt)',
+    house: selectedHouse?.name ?? '(nicht gesetzt)',
+    latitude: latitude ?? '(nicht gesetzt)',
+    longitude: longitude ?? '(nicht gesetzt)',
     contact: settings.contact ?? '(nicht gesetzt)',
   };
 }
@@ -76,6 +131,7 @@ function isValidTime(value) {
 }
 
 // Drei simulierte Verbindungen für den Funktionstest.
+// Die echten Transitous-Abfragen werden später integriert.
 function getRoute({ start, destination, date, time, configuration }) {
   const configText =
     `Gladys-Zuhause: ${configuration.house}\n` +
@@ -157,7 +213,23 @@ const routeFormFields = [
   },
 ];
 
-function createRouteButton() {
+// Den Button für die Routenabfrage erzeugen.
+// Der Hausname wird als Standardwert für das Startfeld eingesetzt.
+// Der Anwender kann diesen Wert im Formular weiterhin ändern.
+function createRouteButton(settings = {}) {
+  const selectedHouse = resolveHouse(settings);
+
+  const fields = routeFormFields.map((field) => {
+    if (field.key === 'start' && selectedHouse?.name) {
+      return {
+        ...field,
+        default: selectedHouse.name,
+      };
+    }
+
+    return field;
+  });
+
   return {
     type: 'button',
     label: {
@@ -169,7 +241,7 @@ function createRouteButton() {
     style: 'primary',
     action: {
       key: 'get_route',
-      fields: routeFormFields,
+      fields,
     },
   };
 }
@@ -189,7 +261,8 @@ export const WIDGETS = {
         });
       }
 
-      components.push(createRouteButton());
+      // Das Formular erhält den Namen des konfigurierten Hauses als Startvorschlag.
+      components.push(createRouteButton(settings));
 
       return {
         ttl_seconds: 3600,
@@ -236,12 +309,15 @@ export const WIDGETS = {
         };
       }
 
+      // Hausdaten und Rückfallkoordinaten für die aktuelle Anfrage auflösen.
+      const configuration = getConfiguration(settings);
+
       const routes = getRoute({
         start: values.start.trim(),
         destination: values.destination.trim(),
         date,
         time,
-        configuration: getConfiguration(settings),
+        configuration,
       });
 
       routeResults.set(getWidgetKey(settings), routes);
