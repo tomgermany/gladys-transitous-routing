@@ -15,7 +15,14 @@ This integration provides you with an easy way to look up schedules for Gladys A
 
 Example:
 
-After clicking the button, a window opens with the search fields:
+After clicking the button:
+
+![Start – Beispielansicht der Transitous-Integration](../images/start1.png)
+
+a window opens with the search fields:
+
+![Sucheingaben – Beispielansicht der Transitous-Integration](../images/start2.png)
+
 
 
 
