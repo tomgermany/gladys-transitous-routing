@@ -1,74 +1,62 @@
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { validateWidgetContent } from '@gladysassistant/integration-sdk';
 import { createFakeGladys } from '@gladysassistant/integration-sdk/testing';
-import { TRANSITOUS_DEPARTURES_WIDGET, WIDGETS, refreshWidgets } from '../src/widgets.js';
+import {
+  TRANSITOUS_DEPARTURES_WIDGET,
+  WIDGETS,
+  refreshWidgets,
+} from '../src/widgets.js';
 
-const gladys = createFakeGladys();
 const widget = WIDGETS[TRANSITOUS_DEPARTURES_WIDGET];
 
 const getContent = (settings = {}) =>
-  widget.get(gladys, {
+  widget.get(createFakeGladys(), {
     settings,
     language: 'de',
     units: 'metric',
     config: {},
   });
 
-test('the Transitous widget is registered', () => {
+test('the route widget is registered', () => {
   assert.ok(widget, 'transitous_departures must be registered');
   assert.equal(typeof widget.get, 'function');
+  assert.equal(typeof widget.action, 'function');
 });
 
-test('missing coordinates produce a helpful message', async () => {
+test('initial widget content is valid and offers the route form', async () => {
   const content = await getContent();
 
   assert.deepEqual(validateWidgetContent(content), []);
+
   assert.ok(
-    content.components.some((component) => component.text?.includes('Breitengrad und Längengrad')),
-    'the user is asked to enter coordinates',
+    content.components.some(
+      (component) => component.type === 'button'
+        && component.action?.key === 'get_route',
+    ),
+    'the widget offers the route form button',
   );
+
   assert.ok(
     !content.components.some((component) => component.type === 'card-list'),
-    'no departure list is shown without coordinates',
+    'mock routes are not shown before submitting the form',
   );
 });
 
-test('invalid coordinates are rejected without fetching departures', async () => {
-  for (const settings of [
-    { latitude: '', longitude: '8.69' },
-    { latitude: '91', longitude: '8.69' },
-    { latitude: '49.35', longitude: '-181' },
-    { latitude: 'not-a-number', longitude: '8.69' },
-  ]) {
-    const content = await getContent(settings);
+test('widget refresh interval is set to one hour', async () => {
+  const content = await getContent();
 
-    assert.ok(
-      content.components.some((component) =>
-        component.text?.includes('Breitengrad und Längengrad'),
-      ),
-      `invalid coordinates should be rejected: ${JSON.stringify(settings)}`,
-    );
-    assert.ok(!content.components.some((component) => component.type === 'card-list'));
-  }
-});
-
-test('widget refresh interval stays within the supported limits', async () => {
-  const tooShort = await getContent({
-    refresh_minutes: 1,
-  });
-  const tooLong = await getContent({
-    refresh_minutes: 120,
-  });
-
-  assert.equal(tooShort.ttl_seconds, 600);
-  assert.equal(tooLong.ttl_seconds, 3600);
+  assert.equal(content.ttl_seconds, 3600);
 });
 
 test('refreshWidgets nudges every registered widget', () => {
-  const fresh = createFakeGladys();
+  const gladys = createFakeGladys();
 
-  refreshWidgets(fresh);
+  refreshWidgets(gladys);
 
-  assert.deepEqual(fresh.fake.widgetRefreshes, Object.keys(WIDGETS));
+  assert.deepEqual(
+    gladys.fake.widgetRefreshes,
+    Object.keys(WIDGETS),
+  );
 });
