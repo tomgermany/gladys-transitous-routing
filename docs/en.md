@@ -31,7 +31,7 @@ Finally, the time in the format HH-mm: 22:23.
 
 Clicking ‘Send’ retrieves the timetables:
 
-![Sucheingaben – Beispielansicht der Transitous-Integration](../images/start4.png)
+![Sucheingaben – Beispielansicht der Transitous-Integration](../images/start3.png)
 
 The list provides an initial overview of the timetables found. At the same time, you will be shown, as a preliminary guide, the next mode of transport required for each route, colour-coded for your convenience.
 
@@ -55,18 +55,16 @@ If you now click directly on one of the routes shown, you can view the detailed 
 a.) Your geolocation as the starting point
  (or choose location from Gladys Assistant)
  
-b.) The diameter of the search radius.
+b.) The refresh interval in 10-minute increments.
 
-c.) The refresh interval in 10-minute increments.
-
-d.) A unique identifier for API access at https://transitous.org/.
+c.) A unique identifier for API access at https://transitous.org/.
 This identifier must be unique—for example, an email address or website.
 It is stored by the integration only in the configuration field there.
 The integration neither retrieves nor documents this identifier.
 Everything remains with you. Transitous.org uses this identifier to manage the load on its IT infrastructure.
 Keep in mind the data provider when setting this. We recommend 15 minutes.
 
-8. After filling out this information, save it and place the widget where you want it.
+5. After filling out this information, save it and place the widget where you want it.
 
 
 ## Troubleshooting
