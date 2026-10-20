@@ -17,11 +17,11 @@ Example:
 
 After clicking the button:
 
-![Start – Beispielansicht der Transitous-Integration](../images/start1.png)
+![Start – Beispielansicht der Transitous-Integration](../images/start.png)
 
 a window opens with the search fields:
 
-![Sucheingaben – Beispielansicht der Transitous-Integration](../images/start2.png)
+![Sucheingaben – Beispielansicht der Transitous-Integration](../images/start1.png)
 
 
 
