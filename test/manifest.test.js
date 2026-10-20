@@ -94,7 +94,7 @@ test('every widgets key has a handler, and vice versa', () => {
 });
 
 test('the route widget provides all four form fields', () => {
-  manifest.widgets.transitous_routing;
+  const widget = manifest.widgets.transitous_routing;
 
   assert.ok(widget, 'the transitous_routing widget must exist');
   assert.equal(typeof widget.get, 'function');
