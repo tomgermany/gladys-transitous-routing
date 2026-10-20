@@ -6,8 +6,39 @@ export const TRANSITOUS_ROUTING_WIDGET = 'transitous_routing';
 // Ergebnisse je Widget-Konfiguration zwischenspeichern.
 const routeResults = new Map();
 
+// Neu: Hier halten wir die zuletzt von Gladys geladene Hausliste.
+// Die Daten werden später für die dynamische Hausauswahl benötigt.
+let gladysHouses = [];
+
 function getWidgetKey(settings = {}) {
   return JSON.stringify(settings);
+}
+
+// Neu: Häuser aus Gladys einlesen und für die weitere Verwendung speichern.
+// Die Funktion wird von index.js beim Verbindungsaufbau aufgerufen.
+export async function refreshHouses(gladys) {
+  try {
+    const houses = await gladys.getHouses();
+
+    // Nur eine gültige Liste übernehmen, damit wir keine ungültigen
+    // Daten als aktuelle Hausliste speichern.
+    if (!Array.isArray(houses)) {
+      throw new Error('getHouses() hat keine gültige Hausliste geliefert.');
+    }
+
+    gladysHouses = houses;
+
+    logger.info(
+      `[Route-Test] ${gladysHouses.length} Gladys-Haus/Häuser geladen.`,
+    );
+  } catch (err) {
+    logger.error(
+      '[Route-Test] Gladys-Häuser konnten nicht geladen werden.',
+      err,
+    );
+
+    throw err;
+  }
 }
 
 // Konfigurationswerte für die späteren echten Routenabfragen.
