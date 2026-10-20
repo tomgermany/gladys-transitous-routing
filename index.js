@@ -1,6 +1,10 @@
 
 import { GladysIntegration, logger } from '@gladysassistant/integration-sdk';
-import { WIDGETS, refreshWidgets } from './src/widgets.js';
+import {
+  WIDGETS,
+  refreshWidgets,
+  refreshHouses, // Neu: lädt die Häuser aus Gladys.
+} from './src/widgets.js';
 
 const gladys = new GladysIntegration();
 
@@ -34,13 +38,18 @@ gladys.onConfigUpdated(async () => {
   refreshWidgets(gladys);
 });
 
-// Nach erfolgreicher Verbindung den Status setzen und das Widget aktualisieren.
+// Nach erfolgreicher Verbindung Häuser laden, Status setzen und Widgets aktualisieren.
+// Der SDK-Handler wird bei einer erneuten Verbindung ebenfalls aufgerufen.
 gladys.on('connected', async () => {
   logger.info('[Route-Test] Verbindung zu Gladys hergestellt.');
 
   try {
+    // Neu: Hausliste laden, bevor wir die Initialisierung abschließen.
+    await refreshHouses(gladys);
+
     await gladys.setConnectionStatus(true);
     refreshWidgets(gladys);
+
     logger.info('[Route-Test] Initialisierung abgeschlossen.');
   } catch (err) {
     logger.error('[Route-Test] Initialisierung fehlgeschlagen.', err);
