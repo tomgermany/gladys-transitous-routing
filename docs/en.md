@@ -1,4 +1,4 @@
-# Transitous Depatures Integration for Gladys
+# Transitous Routing Integration for Gladys
 
 ## You need:
 
@@ -31,7 +31,7 @@ Finally, the time in the format HH-mm: 22:23.
 
 Clicking ‘Send’ retrieves the timetables:
 
-![Sucheingaben – Beispielansicht der Transitous-Integration](../images/start3.png)
+![Sucheingaben – Beispielansicht der Transitous-Integration](../images/start4.png)
 
 The list provides an initial overview of the timetables found. At the same time, you will be shown, as a preliminary guide, the next mode of transport required for each route, colour-coded for your convenience.
 
