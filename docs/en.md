@@ -24,14 +24,21 @@ a window opens with the search fields:
 ![Sucheingaben – Beispielansicht der Transitous-Integration](../images/start1.png)
 
 
+The start field is pre-filled with your home address in Gladys. See the configuration section for more details. You can overwrite this.
+The destination goes below that.
+The date in the format DD - MM - YYYY, for example: 21.10.2026.
+Finally, the time in the format HH-mm: 22:23.
 
+Clicking ‘Send’ retrieves the timetables:
 
-![Lissabon – Beispielansicht der Transitous-Integration](../test/lissabon.png)
+![Sucheingaben – Beispielansicht der Transitous-Integration](../images/start3.png)
 
-Result: For each of the six tiles, the nearest stop is first determined once. That is, the nearest bus stop, nearest ferry, and nearest rail stop.
-The next departure from that stop is then displayed.
-This means: If there is only one stop within your search radius, you will see the next six departures.
-If multiple stops are found, they are displayed using color coding.
+The list provides an initial overview of the timetables found. At the same time, you will be shown, as a preliminary guide, the next mode of transport required for each route, colour-coded for your convenience.
+
+If you now click directly on one of the routes shown, you can view the detailed information:
+
+![Sucheingaben – Beispielansicht der Transitous-Integration](../images/start4.png)
+
 
 ## Configuration
 
