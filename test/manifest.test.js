@@ -93,12 +93,17 @@ test('every widgets key has a handler, and vice versa', () => {
   }
 });
 
-test('the route widget provides all four form fields', () => {
-  const widget = manifest.widgets.transitous_routing;
+test('the route widget is declared in the manifest and has a handler', () => {
+  const widget = manifest.widgets.find(
+    (entry) => entry.key === 'transitous_routing',
+  );
 
   assert.ok(widget, 'the transitous_routing widget must exist');
-  assert.equal(typeof widget.get, 'function');
-  assert.equal(typeof widget.action, 'function');
+
+  const handler = WIDGETS[widget.key];
+
+  assert.equal(typeof handler?.get, 'function');
+  assert.equal(typeof handler?.action, 'function');
 });
 
 test('the manifest version is the package version, and the image is tagged with it', () => {
