@@ -22,11 +22,11 @@ function getConfiguration(settings = {}) {
 // Prüft Datum im europäischen Format DD-MM-YYYY.
 // Berücksichtigt auch ungültige Kalendertage und Schaltjahre.
 function isValidDate(value) {
-  if (!/^\d{2}-\d{2}-\d{4}$/.test(value)) {
+  if (!/^\d{2}\.\d{2}\.\d{4}$/.test(value)) {
     return false;
   }
 
-  const [day, month, year] = value.split('-').map(Number);
+  const [day, month, year] = value.split('.').map(Number);
 
   if (year < 1 || month < 1 || month > 12 || day < 1) {
     return false;
