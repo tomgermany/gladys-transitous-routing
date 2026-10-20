@@ -2,8 +2,8 @@
 import { GladysIntegration, logger } from '@gladysassistant/integration-sdk';
 import {
   WIDGETS,
-  refreshWidgets,
   refreshHouses,
+  refreshWidgets,
 } from './src/widgets.js';
 
 const gladys = new GladysIntegration();
@@ -14,7 +14,7 @@ for (const [widgetKey, widget] of Object.entries(WIDGETS)) {
     widget.get(gladys, request ?? {}),
   );
 
-  // Formularwerte werden zusätzlich zu actionKey, params und settings weitergereicht.
+  // Formularwerte zusammen mit actionKey, params und settings weitergeben.
   if (typeof widget.action === 'function') {
     gladys.onWidgetAction(
       widgetKey,
@@ -31,19 +31,29 @@ for (const [widgetKey, widget] of Object.entries(WIDGETS)) {
   }
 }
 
-// Änderungen an der Konfiguration lösen eine Widget-Aktualisierung aus.
+// Änderungen an der Integrationskonfiguration aktualisieren die Widgets.
+// Die Hausliste wird hier nicht regelmäßig neu geladen.
 gladys.onConfigUpdated(async () => {
   logger.info('[Route-Test] Konfiguration geändert.');
   refreshWidgets(gladys);
 });
 
-// Nach erfolgreicher Verbindung die Häuser laden, den Status setzen
-// und die Widgets aktualisieren. Dies geschieht auch bei erneuter Verbindung.
+// Nach erfolgreicher Verbindung die Hausliste einmal laden.
+// Bei einer erneuten Verbindung wird sie ebenfalls aktualisiert.
 gladys.on('connected', async () => {
   logger.info('[Route-Test] Verbindung zu Gladys hergestellt.');
 
   try {
-    await refreshHouses(gladys);
+    try {
+      await refreshHouses(gladys);
+    } catch (err) {
+      // Ein Fehler beim Laden der Häuser soll die gesamte Integration
+      // nicht blockieren. Die letzte erfolgreich geladene Liste bleibt erhalten.
+      logger.error(
+        '[Route-Test] Hausliste konnte nicht geladen werden.',
+        err,
+      );
+    }
 
     await gladys.setConnectionStatus(true);
     refreshWidgets(gladys);
