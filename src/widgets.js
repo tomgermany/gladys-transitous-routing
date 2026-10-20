@@ -1,4 +1,4 @@
-
+```javascript
 import { logger } from '@gladysassistant/integration-sdk';
 
 export const TRANSITOUS_DEPARTURES_WIDGET = 'transitous_departures';
@@ -10,36 +10,55 @@ function getWidgetKey(settings = {}) {
   return JSON.stringify(settings);
 }
 
+// Konfigurationswerte für die Anzeige aufbereiten.
+function getConfiguration(settings = {}) {
+  return {
+    house: settings.house ?? '(nicht gesetzt)',
+    latitude: settings.latitude ?? '(nicht gesetzt)',
+    longitude: settings.longitude ?? '(nicht gesetzt)',
+    contact: settings.contact ?? '(nicht gesetzt)',
+  };
+}
+
 /**
  * Erzeugt drei simulierte Verbindungen.
- * Die Formulardaten werden in den Beschreibungen wiedergegeben,
- * damit die Datenübergabe im Widget überprüft werden kann.
+ * Formular- und Konfigurationsdaten werden angezeigt,
+ * damit die Datenübergabe überprüft werden kann.
  */
-function getRoute({ start, destination, date, time }) {
+function getRoute({ start, destination, date, time, configuration }) {
+  const configText =
+    `Gladys-Zuhause: ${configuration.house}\n` +
+    `Breitengrad: ${configuration.latitude}\n` +
+    `Längengrad: ${configuration.longitude}\n` +
+    `Transitous-Kennzeichner: ${configuration.contact}\n`;
+
   return [
     {
       title: 'Testverbindung 1',
       subtitle: 'Abfahrt 08:15 · Ankunft 08:42',
       description:
         `Start: ${start}\nZiel: ${destination}\n` +
-        `Datum: ${date}\nUhrzeit: ${time}\n` +
-        'Simulierte Verbindung ohne Umstieg.',
+        `Datum: ${date}\nUhrzeit: ${time}\n\n` +
+        configText +
+        '\nSimulierte Verbindung ohne Umstieg.',
     },
     {
       title: 'Testverbindung 2',
       subtitle: 'Abfahrt 08:20 · Ankunft 08:55',
       description:
         `Start: ${start}\nZiel: ${destination}\n` +
-        `Datum: ${date}\nUhrzeit: ${time}\n` +
-        'Simulierte Verbindung mit einem Umstieg.',
+        `Datum: ${date}\nUhrzeit: ${time}\n\n` +
+        configText +
+        '\nSimulierte Verbindung mit einem Umstieg.',
     },
     {
       title: 'Testverbindung 3',
       subtitle: 'Abfahrt 08:30 · Ankunft 09:05',
       description:
         `Start: ${start}\nZiel: ${destination}\n` +
-        `Datum: ${date}\nUhrzeit: ${time}\n` +
-        'Dritte simulierte Verbindung.',
+        `Datum: ${date}\nUhrzeit: ${time}\n\n` +
+        configText +
+        '\nDritte simulierte Verbindung.',
     },
   ];
 }
@@ -114,6 +133,7 @@ export const WIDGETS = {
     async get(gladys, { settings = {} } = {}) {
       const widgetKey = getWidgetKey(settings);
       const savedRoutes = routeResults.get(widgetKey);
+      const configuration = getConfiguration(settings);
 
       logger.info(
         `[Route-Test] Widget abgerufen. Ergebnisse vorhanden: ${Boolean(savedRoutes)}.`,
@@ -124,6 +144,15 @@ export const WIDGETS = {
           type: 'text',
           variant: 'heading',
           text: 'Routen-Funktionstest',
+        },
+        {
+          type: 'text',
+          variant: 'body',
+          text:
+            `Gladys-Zuhause: ${configuration.house}\n` +
+            `Breitengrad: ${configuration.latitude}\n` +
+            `Längengrad: ${configuration.longitude}\n` +
+            `Transitous-Kennzeichner: ${configuration.contact}`,
         },
       ];
 
@@ -138,105 +167,4 @@ export const WIDGETS = {
         );
       } else {
         logger.info(
-          `[Route-Test] ${savedRoutes.length} gespeicherte Testverbindungen werden angezeigt.`,
-        );
-
-        components.push(
-          {
-            type: 'card-list',
-            display: 'list',
-            items: savedRoutes,
-          },
-          createRouteButton(),
-        );
-      }
-
-      return {
-        ttl_seconds: 3600,
-        components,
-      };
-    },
-
-    /**
-     * Verarbeitet den Formularversand.
-     * values enthält die Formularwerte, params ist ein separates Argument.
-     */
-    async action(gladys, { actionKey, settings = {}, values } = {}) {
-      logger.info(`[Route-Test] Widget-Aktion empfangen: ${actionKey}.`);
-
-      if (actionKey !== 'get_route') {
-        logger.info('[Route-Test] Unbekannte Aktion – keine Verarbeitung.');
-        return;
-      }
-
-      // Nur prüfen, ob die Pflichtfelder vorhanden sind.
-      // Die eingegebenen Werte selbst werden nicht protokolliert.
-      const requiredFields = [
-        'start',
-        'destination',
-        'date',
-        'time',
-      ];
-
-      const missingFields = requiredFields.filter(
-        (key) =>
-          typeof values?.[key] !== 'string'
-          || !values[key].trim(),
-      );
-
-      if (missingFields.length > 0) {
-        logger.warn(
-          `[Route-Test] Formular unvollständig. Fehlende Felder: ${missingFields.join(', ')}.`,
-        );
-
-        return {
-          de: 'Formulardaten fehlen.',
-          en: 'Form values are missing.',
-          fr: 'Les données du formulaire sont manquantes.',
-        };
-      }
-
-      logger.info(
-        '[Route-Test] Alle vier Formularfelder wurden empfangen.',
-      );
-
-      // Drei feste Testverbindungen anhand der Formulardaten erzeugen.
-      const routes = getRoute({
-        start: values.start.trim(),
-        destination: values.destination.trim(),
-        date: values.date.trim(),
-        time: values.time.trim(),
-      });
-
-      logger.info(
-        `[Route-Test] ${routes.length} simulierte Verbindungen erzeugt.`,
-      );
-
-      // Ergebnisse für den nächsten Widget-Abruf zwischenspeichern.
-      routeResults.set(getWidgetKey(settings), routes);
-
-      logger.info('[Route-Test] Testergebnisse im Zwischenspeicher abgelegt.');
-
-      // Gladys auffordern, das Widget erneut abzurufen.
-      gladys.requestWidgetRefresh(TRANSITOUS_DEPARTURES_WIDGET);
-
-      logger.info('[Route-Test] Widget-Aktualisierung angefordert.');
-
-      return {
-        de: 'Formulardaten empfangen. Drei Testverbindungen wurden erzeugt.',
-        en: 'Form values received. Three test connections were generated.',
-        fr: 'Données reçues. Trois trajets de test ont été générés.',
-      };
-    },
-  },
-};
-
-/**
- * Aktualisiert alle registrierten Widgets, etwa nach dem Verbindungsaufbau.
- */
-export function refreshWidgets(gladys) {
-  for (const key of Object.keys(WIDGETS)) {
-    logger.info(`[Route-Test] Aktualisierung angefordert: ${key}.`);
-    gladys.requestWidgetRefresh(key);
-  }
-}
+         
