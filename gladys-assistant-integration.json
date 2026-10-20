@@ -2,8 +2,9 @@
 {
   "manifest_version": 1,
   "type": "provider",
-  "name": "Transitous Fahrplanauskunft – Test",
+  "name": "Transitous Route Test",
   "description": {
+    "en": "Test interface for Transitous route queries.",
     "de": "Testoberfläche für Fahrplanauskünfte mit Transitous."
   },
   "version": "1.0.0",
@@ -21,9 +22,11 @@
     {
       "key": "transitous_departures",
       "label": {
-        "de": "Transitous-Fahrplanauskunft – Test"
+        "en": "Transitous Route Test",
+        "de": "Transitous Fahrplanauskunft"
       },
       "description": {
+        "en": "Test the route form and display sample connections.",
         "de": "Formular zur Fahrplanauskunft testen und Beispielverbindungen anzeigen."
       },
       "icon": "map-pin",
@@ -33,6 +36,7 @@
           "type": "select",
           "source": "houses",
           "label": {
+            "en": "Gladys home (optional)",
             "de": "Gladys-Zuhause (optional)"
           }
         },
@@ -40,9 +44,11 @@
           "key": "latitude",
           "type": "number",
           "label": {
+            "en": "Latitude",
             "de": "Breitengrad"
           },
           "placeholder": {
+            "en": "e.g. 49.350",
             "de": "z. B. 49.350"
           },
           "required": false,
@@ -53,9 +59,11 @@
           "key": "longitude",
           "type": "number",
           "label": {
+            "en": "Longitude",
             "de": "Längengrad"
           },
           "placeholder": {
+            "en": "e.g. 8.690",
             "de": "z. B. 8.690"
           },
           "required": false,
@@ -66,9 +74,11 @@
           "key": "contact",
           "type": "string",
           "label": {
+            "en": "Transitous identifier or contact",
             "de": "Transitous-Kennzeichner oder Kontakt"
           },
           "placeholder": {
+            "en": "e.g. email or website",
             "de": "z. B. E-Mail oder Website"
           },
           "required": true
