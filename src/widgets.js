@@ -1,4 +1,3 @@
-```javascript
 import { logger } from '@gladysassistant/integration-sdk';
 
 export const TRANSITOUS_DEPARTURES_WIDGET = 'transitous_departures';
@@ -18,6 +17,35 @@ function getConfiguration(settings = {}) {
     longitude: settings.longitude ?? '(nicht gesetzt)',
     contact: settings.contact ?? '(nicht gesetzt)',
   };
+}
+
+// Prüft Datum im europäischen Format DD-MM-YYYY.
+// Berücksichtigt auch ungültige Kalendertage und Schaltjahre.
+function isValidDate(value) {
+  if (!/^\d{2}-\d{2}-\d{4}$/.test(value)) {
+    return false;
+  }
+
+  const [day, month, year] = value.split('-').map(Number);
+
+  if (year < 1 || month < 1 || month > 12 || day < 1) {
+    return false;
+  }
+
+  const daysInMonth = new Date(year, month, 0).getDate();
+
+  return day <= daysInMonth;
+}
+
+// Prüft die Uhrzeit im 24-Stunden-Format HH:mm.
+function isValidTime(value) {
+  if (!/^\d{2}:\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const [hours, minutes] = value.split(':').map(Number);
+
+  return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
 }
 
 /**
@@ -90,9 +118,9 @@ const routeFormFields = [
     type: 'string',
     required: true,
     label: {
-      de: 'Datum',
-      en: 'Date',
-      fr: 'Date',
+      de: 'Datum (TT-MM-JJJJ)',
+      en: 'Date (DD-MM-YYYY)',
+      fr: 'Date (JJ-MM-AAAA)',
     },
   },
   {
@@ -100,9 +128,9 @@ const routeFormFields = [
     type: 'string',
     required: true,
     label: {
-      de: 'Uhrzeit',
-      en: 'Time',
-      fr: 'Heure',
+      de: 'Uhrzeit (HH:mm)',
+      en: 'Time (HH:mm, 24-hour)',
+      fr: 'Heure (HH:mm, 24 h)',
     },
   },
 ];
@@ -161,10 +189,131 @@ export const WIDGETS = {
           {
             type: 'text',
             variant: 'body',
-            text: 'Öffne das Mini-Formular und übermittle die vier Testwerte.',
+            text:
+              'Datum bitte als TT-MM-JJJJ und Uhrzeit als HH:mm eingeben.',
           },
           createRouteButton(),
         );
       } else {
         logger.info(
-         
+          `[Route-Test] ${savedRoutes.length} gespeicherte Testverbindungen werden angezeigt.`,
+        );
+
+        components.push(
+          {
+            type: 'card-list',
+            display: 'list',
+            items: savedRoutes,
+          },
+          createRouteButton(),
+        );
+      }
+
+      return {
+        ttl_seconds: 3600,
+        components,
+      };
+    },
+
+    /**
+     * Verarbeitet den Formularversand.
+     * values enthält die Formularwerte.
+     */
+    async action(gladys, { actionKey, settings = {}, values } = {}) {
+      logger.info(`[Route-Test] Widget-Aktion empfangen: ${actionKey}.`);
+
+      if (actionKey !== 'get_route') {
+        logger.info('[Route-Test] Unbekannte Aktion – keine Verarbeitung.');
+        return;
+      }
+
+      const requiredFields = [
+        'start',
+        'destination',
+        'date',
+        'time',
+      ];
+
+      const missingFields = requiredFields.filter(
+        (key) =>
+          typeof values?.[key] !== 'string' ||
+          !values[key].trim(),
+      );
+
+      if (missingFields.length > 0) {
+        logger.warn(
+          `[Route-Test] Formular unvollständig. Fehlende Felder: ${missingFields.join(', ')}.`,
+        );
+
+        return {
+          de: 'Bitte alle vier Formularfelder ausfüllen.',
+          en: 'Please complete all four form fields.',
+          fr: 'Veuillez remplir les quatre champs du formulaire.',
+        };
+      }
+
+      const date = values.date.trim();
+      const time = values.time.trim();
+
+      if (!isValidDate(date)) {
+        logger.warn('[Route-Test] Datum ungültig oder falsches Format.');
+
+        return {
+          de: 'Ungültiges Datum. Bitte TT-MM-JJJJ verwenden, z. B. 20-10-2026.',
+          en: 'Invalid date. Use DD-MM-YYYY, e.g. 20-10-2026.',
+          fr: 'Date invalide. Utilisez JJ-MM-AAAA, par ex. 20-10-2026.',
+        };
+      }
+
+      if (!isValidTime(time)) {
+        logger.warn('[Route-Test] Uhrzeit ungültig oder falsches Format.');
+
+        return {
+          de: 'Ungültige Uhrzeit. Bitte HH:mm verwenden, z. B. 08:15.',
+          en: 'Invalid time. Use HH:mm, e.g. 08:15.',
+          fr: 'Heure invalide. Utilisez HH:mm, par ex. 08:15.',
+        };
+      }
+
+      logger.info('[Route-Test] Formularfelder erfolgreich geprüft.');
+
+      const configuration = getConfiguration(settings);
+
+      const routes = getRoute({
+        start: values.start.trim(),
+        destination: values.destination.trim(),
+        date,
+        time,
+        configuration,
+      });
+
+      logger.info(
+        `[Route-Test] ${routes.length} simulierte Verbindungen erzeugt.`,
+      );
+
+      routeResults.set(getWidgetKey(settings), routes);
+
+      logger.info('[Route-Test] Testergebnisse im Zwischenspeicher abgelegt.');
+
+      gladys.requestWidgetRefresh(TRANSITOUS_DEPARTURES_WIDGET);
+
+      logger.info('[Route-Test] Widget-Aktualisierung angefordert.');
+
+      return {
+        de: 'Formulardaten empfangen. Drei Testverbindungen wurden erzeugt.',
+        en: 'Form values received. Three test connections were generated.',
+        fr: 'Données reçues. Trois trajets de test ont été générés.',
+      };
+    },
+  },
+};
+
+/**
+ * Aktualisiert alle registrierten Widgets, etwa nach dem Verbindungsaufbau.
+ */
+export function refreshWidgets(gladys) {
+  for (const key of Object.keys(WIDGETS)) {
+    logger.info(`[Route-Test] Aktualisierung angefordert: ${key}.`);
+    gladys.requestWidgetRefresh(key);
+  }
+}
