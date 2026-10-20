@@ -1,7 +1,7 @@
 
 import { logger } from '@gladysassistant/integration-sdk';
 
-export const TRANSITOUS_DEPARTURES_WIDGET = 'transitous_departures';
+export const TRANSITOUS_ROUTING_WIDGET = 'transitous_routing';
 
 // Ergebnisse je Widget-Konfiguration zwischenspeichern.
 const routeResults = new Map();
@@ -144,7 +144,7 @@ function createRouteButton() {
 }
 
 export const WIDGETS = {
-  [TRANSITOUS_DEPARTURES_WIDGET]: {
+  [TRANSITOUS_ROUTING_WIDGET]: {
     async get(gladys, { settings = {} } = {}) {
       const savedRoutes = routeResults.get(getWidgetKey(settings));
 
@@ -219,7 +219,7 @@ export const WIDGETS = {
         `[Route-Test] ${routes.length} simulierte Verbindungen erzeugt.`,
       );
 
-      gladys.requestWidgetRefresh(TRANSITOUS_DEPARTURES_WIDGET);
+      gladys.requestWidgetRefresh(TRANSITOUS_ROUTING_WIDGET);
 
       return {
         de: 'Drei Testverbindungen wurden erzeugt.',
