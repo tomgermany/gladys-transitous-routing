@@ -118,9 +118,9 @@ const routeFormFields = [
     type: 'string',
     required: true,
     label: {
-      de: 'Datum (TT-MM-JJJJ)',
-      en: 'Date (DD-MM-YYYY)',
-      fr: 'Date (JJ-MM-AAAA)',
+      de: 'Datum (TT.MM.JJJJ)',
+      en: 'Date (DD.MM.YYYY)',
+      fr: 'Date (JJ.MM.AAAA)',
     },
   },
   {
@@ -259,9 +259,9 @@ export const WIDGETS = {
         logger.warn('[Route-Test] Datum ungültig oder falsches Format.');
 
         return {
-          de: 'Ungültiges Datum. Bitte TT-MM-JJJJ verwenden, z. B. 20-10-2026.',
-          en: 'Invalid date. Use DD-MM-YYYY, e.g. 20-10-2026.',
-          fr: 'Date invalide. Utilisez JJ-MM-AAAA, par ex. 20-10-2026.',
+          de: 'Ungültiges Datum. Bitte TT.MM.JJJJ verwenden, z. B. 20.10.2026.',
+          en: 'Invalid date. Use DD.MM.YYYY, e.g. 20.10.2026.',
+          fr: 'Date invalide. Utilisez JJ.MM.AAAA, par ex. 20.10.2026.',
         };
       }
 
