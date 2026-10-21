@@ -4,6 +4,11 @@
 
 Vous recevrez une intégration externe pour Gladys Assistant.
 
+## Vous obtenez :
+
+Grâce à ses dimensions compactes et à sa présentation claire, cette application vous permet de consulter facilement et rapidement les horaires du monde entier.
+
+
 Cette intégration vous permet de consulter facilement les horaires de Gladys Assistant.
 Exemple :
 
@@ -31,13 +36,6 @@ Si vous cliquez maintenant directement sur l'un des itinéraires affichés, vous
 
 ![Start – Beispielansicht der Transitous-Integration](../images/start4.png)
 
-## Vous obtenez :
-
-Vous recevrez une intégration externe pour Galdys Assistant. 
-Cette intégration affiche automatiquement les 6 prochains départs
-des transports en commun dans un widget clair et facile à lire,
-qu’il s’agisse de bus, de trains, de ferries ou de tramways.
-Le tout dans un rayon configurable autour de votre domicile.
 
 ## Configuration
 
