@@ -9,11 +9,11 @@ Exemple :
 
 Après avoir cliqué sur le bouton :
 
-1
+![Start – Beispielansicht der Transitous-Integration](../images/start.png)
 
 une fenêtre s'ouvre avec les champs de recherche :
 
-2
+![Start – Beispielansicht der Transitous-Integration](../images/start1.png)
 
 Le champ « Départ » est prérempli avec votre adresse personnelle dans Gladys. Reportez-vous à la section « Configuration » pour plus de détails. Vous pouvez modifier cette valeur.
 
@@ -24,10 +24,12 @@ La date au format JJ - MM - AAAA, par exemple : 21.10.2026.
 Enfin, l'heure au format HH-mm : 22:23.
 Cliquez sur « Envoyer » pour récupérer les horaires :
 
-3
+![Start – Beispielansicht der Transitous-Integration](../images/start3.png)
 
 Cette liste vous donne un premier aperçu des horaires trouvés. Parallèlement, vous verrez s'afficher, à titre indicatif, le prochain moyen de transport à emprunter pour chaque itinéraire, identifié par un code couleur pour plus de facilité.
 Si vous cliquez maintenant directement sur l'un des itinéraires affichés, vous pourrez consulter les informations détaillées :
+
+![Start – Beispielansicht der Transitous-Integration](../images/start4.png)
 
 ## Vous obtenez :
 
