@@ -2,7 +2,11 @@
 
 ## Il vous faut :
 
-Vous recevrez une intégration externe pour Gladys Assistant.
+Gladys Assistant > Version 5.2
+
+Intégration externe - Routage transitoire
+
+Accès à Internet pour votre installation de Gladys Assistant
 
 ## Vous obtenez :
 
