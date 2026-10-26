@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@gladysassistant/integration-sdk": "^0.15.0",
-    "@motis-project/motis-client": "^2.10.2"
+    "@motis-project/motis-client": "^2.11.4"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
